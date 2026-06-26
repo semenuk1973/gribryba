@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1D9E75">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ГрибРыба">
+<title>ГрибРыба — GPS точки</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  --teal: #1D9E75; --teal-dark: #0F6E56; --teal-light: #E1F5EE; --teal-mid: #9FE1CB;
+  --blue: #378ADD; --blue-dark: #185FA5; --blue-light: #E6F1FB; --blue-mid: #B5D4F4;
+  --amber: #BA7517; --amber-light: #FAEEDA; --amber-mid: #FAC775;
+  --red: #A32D2D; --red-light: #FCEBEB; --red-mid: #F7C1C1;
+  --bg: #ffffff; --bg2: #F5F5F0; --bg3: #EBEBEB;
+  --text: #1a1a18; --text2: #5F5E5A; --text3: #888780;
+  --border: rgba(0,0,0,0.1); --border2: rgba(0,0,0,0.18);
+  --radius: 12px; --radius-sm: 8px; --radius-xs: 6px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a18; --bg2: #242420; --bg3: #2e2e2a;
+    --text: #F1EFE8; --text2: #888780; --text3: #5F5E5A;
+    --border: rgba(255,255,255,0.1); --border2: rgba(255,255,255,0.18);
+    --teal-light: #0a3326; --blue-light: #0a1f3a; --amber-light: #2a1e04; --red-light: #2a0c0c;
+  }
+}
+html, body { height: 100%; overflow: hidden; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.4; }
+
+#app { display: flex; flex-direction: column; height: 100vh; max-width: 540px; margin: 0 auto; position: relative; }
+
+/* HEADER */
+header { background: var(--teal); color: white; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.15); z-index: 10; }
+.header-title { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.header-title span { font-size: 20px; }
+.header-btns { display: flex; gap: 6px; }
+.hbtn { background: rgba(255,255,255,0.18); border: none; color: white; border-radius: var(--radius-xs); padding: 7px 11px; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 5px; }
+.hbtn:active { background: rgba(255,255,255,0.3); }
+
+/* NAV */
+nav { background: var(--bg); border-bottom: 1px solid var(--border); display: flex; flex-shrink: 0; }
+.ntab { flex: 1; padding: 9px 4px 8px; text-align: center; border: none; background: none; color: var(--text3); cursor: pointer; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 3px; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; }
+.ntab .icon { font-size: 22px; line-height: 1; }
+.ntab.active { color: var(--teal); border-bottom-color: var(--teal); }
+
+/* SCREENS */
+.screen { flex: 1; overflow-y: auto; display: none; flex-direction: column; -webkit-overflow-scrolling: touch; }
+.screen.active { display: flex; }
+
+/* MAP */
+#map { flex: 1; min-height: 200px; }
+#screen-map { position: relative; }
+.fab { position: absolute; bottom: 20px; right: 16px; z-index: 500; background: var(--teal); color: white; border: none; border-radius: 50%; width: 54px; height: 54px; font-size: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(0,0,0,0.25); }
+.fab:active { transform: scale(0.95); }
+.map-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 500; background: rgba(255,255,255,0.92); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--text2); pointer-events: none; }
+
+/* LIST */
+#screen-list { padding: 0; }
+.list-top { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 8px; background: var(--bg); position: sticky; top: 0; z-index: 5; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.filter-row { display: flex; gap: 8px; }
+.filter-row select, .filter-row input { flex: 1; padding: 8px 10px; border: 1px solid var(--border2); border-radius: var(--radius-xs); background: var(--bg); color: var(--text); font-size: 13px; min-width: 0; }
+.points-container { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.pcard { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 13px; cursor: pointer; transition: background 0.1s; }
+.pcard:active { background: var(--bg2); }
+.pcard-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.picon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+.picon-m { background: var(--teal-light); }
+.picon-f { background: var(--blue-light); }
+.pname { font-weight: 600; font-size: 14px; }
+.psub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.pbadge { margin-left: auto; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+.pbadge-m { background: var(--teal-light); color: var(--teal-dark); }
+.pbadge-f { background: var(--blue-light); color: var(--blue-dark); }
+.pmeta { display: flex; gap: 14px; font-size: 12px; color: var(--text3); }
+.empty { text-align: center; padding: 56px 24px; color: var(--text3); }
+.empty-icon { font-size: 48px; margin-bottom: 12px; }
+
+/* ADD FORM */
+#screen-add { padding: 14px 14px 32px; gap: 14px; overflow-y: auto; }
+.fgroup { display: flex; flex-direction: column; gap: 6px; }
+.flabel { font-size: 13px; font-weight: 500; color: var(--text2); }
+.finput { padding: 11px 12px; border: 1px solid var(--border2); border-radius: var(--radius-xs); background: var(--bg); color: var(--text); font-size: 14px; width: 100%; -webkit-appearance: none; }
+.finput:focus { outline: 2px solid var(--teal); border-color: transparent; }
+.type-row { display: flex; gap: 8px; }
+.tbtn { flex: 1; padding: 11px 8px; border: 1.5px solid var(--border2); border-radius: var(--radius-sm); background: var(--bg); color: var(--text2); cursor: pointer; text-align: center; font-size: 14px; transition: all 0.15s; }
+.tbtn.active { border-color: var(--teal); background: var(--teal-light); color: var(--teal-dark); font-weight: 600; }
+.gps-row { display: flex; gap: 8px; }
+.gps-row .finput { flex: 1; }
+.gpsbtn { padding: 11px 12px; background: var(--teal-light); color: var(--teal-dark); border: 1px solid var(--teal-mid); border-radius: var(--radius-xs); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.gpsbtn:active { background: var(--teal-mid); }
+.savebtn { background: var(--teal); color: white; border: none; border-radius: var(--radius-sm); padding: 14px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 4px; }
+.savebtn:active { background: var(--teal-dark); }
+.hidden { display: none !important; }
+.form-section { background: var(--bg2); border-radius: var(--radius); padding: 12px 13px; display: flex; flex-direction: column; gap: 12px; }
+
+/* ROUTE */
+#screen-route { padding: 12px; gap: 10px; }
+.route-info { background: var(--teal-light); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 13px; color: var(--teal-dark); }
+.route-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.rcheck { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border2); cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--teal); font-size: 15px; flex-shrink: 0; transition: all 0.15s; }
+.rcheck.on { background: var(--teal); border-color: var(--teal); color: white; }
+.rname { font-size: 14px; font-weight: 500; }
+.rsub { font-size: 12px; color: var(--text2); }
+.rbtn { width: 100%; background: var(--teal); color: white; border: none; border-radius: var(--radius-sm); padding: 13px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+.rbtn:active { background: var(--teal-dark); }
+.route-count { font-size: 13px; color: var(--text2); text-align: right; }
+
+/* MODAL */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: flex-end; justify-content: center; }
+.overlay.hidden { display: none; }
+.modal { background: var(--bg); border-radius: 20px 20px 0 0; padding: 8px 16px 36px; width: 100%; max-width: 540px; }
+.modal-handle { width: 40px; height: 4px; background: var(--border2); border-radius: 2px; margin: 10px auto 14px; }
+.modal-title { font-size: 17px; font-weight: 600; margin-bottom: 14px; }
+.mrow { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.mrow:last-of-type { border-bottom: none; }
+.mlabel { color: var(--text2); }
+.mvalue { font-weight: 500; text-align: right; max-width: 60%; word-break: break-word; }
+.mbtns { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.mbtns button { flex: 1; min-width: 80px; padding: 11px 8px; border-radius: var(--radius-xs); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid; }
+.btn-del { background: var(--red-light); color: var(--red); border-color: var(--red-mid); }
+.btn-nav { background: var(--blue-light); color: var(--blue-dark); border-color: var(--blue-mid); }
+.btn-route { background: var(--amber-light); color: var(--amber); border-color: var(--amber-mid); }
+
+/* TOAST */
+#toast { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%); background: #2a2a28; color: white; padding: 10px 20px; border-radius: 24px; font-size: 13px; z-index: 9999; opacity: 0; transition: opacity 0.3s; pointer-events: none; white-space: nowrap; }
+#toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="header-title"><span>🗺️</span> ГрибРыба</div>
+    <div class="header-btns">
+      <button class="hbtn" onclick="exportExcel()">📊 Excel</button>
+      <button class="hbtn" onclick="exportJSON()">💾 Бэкап</button>
+      <button class="hbtn" onclick="importJSON()">📥 Импорт</button>
+    </div>
+  </header>
+
+  <nav>
+    <button class="ntab active" id="tab-map" onclick="goTab('map')">
+      <span class="icon">🗺️</span>Карта
+    </button>
+    <button class="ntab" id="tab-list" onclick="goTab('list')">
+      <span class="icon">📋</span>Точки
+    </button>
+    <button class="ntab" id="tab-add" onclick="goTab('add')">
+      <span class="icon">➕</span>Добавить
+    </button>
+    <button class="ntab" id="tab-route" onclick="goTab('route')">
+      <span class="icon">🧭</span>Маршрут
+    </button>
+  </nav>
+
+  <!-- MAP -->
+  <div class="screen active" id="screen-map">
+    <div class="map-hint" id="map-hint">Нажми на карту, чтобы добавить точку</div>
+    <div id="map"></div>
+    <button class="fab" onclick="goTab('add'); getGPS()" title="Добавить точку" style="bottom:82px">+</button>
+    <button class="fab" onclick="centerOnMe()" title="Моё местоположение" style="bottom:18px;background:#185FA5;width:44px;height:44px;font-size:20px">📍</button>
+  </div>
+
+  <!-- LIST -->
+  <div class="screen" id="screen-list">
+    <div class="list-top">
+      <div class="filter-row">
+        <select id="ft" onchange="updateSpeciesFilter(); renderList()">
+          <option value="">Все типы</option>
+          <option value="mushroom">🍄 Грибы</option>
+          <option value="fish">🐟 Рыба</option>
+        </select>
+        <select id="fs" onchange="renderList()">
+          <option value="">Все виды</option>
+        </select>
+      </div>
+      <div class="filter-row">
+        <input type="date" id="fd1" onchange="renderList()" placeholder="От">
+        <input type="date" id="fd2" onchange="renderList()" placeholder="До">
+      </div>
+    </div>
+    <div class="points-container" id="plist"></div>
+  </div>
+
+  <!-- ADD -->
+  <div class="screen" id="screen-add">
+    <div class="fgroup">
+      <div class="flabel">Тип точки</div>
+      <div class="type-row">
+        <button class="tbtn active" id="tb-m" onclick="setType('mushroom')">🍄 Грибы</button>
+        <button class="tbtn" id="tb-f" onclick="setType('fish')">🐟 Рыбалка</button>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <div class="flabel">Название</div>
+      <input class="finput" id="inp-name" type="text" placeholder="Напр: Поляна у ручья">
+    </div>
+
+    <div class="form-section">
+      <div class="fgroup" id="g-mushroom">
+        <div class="flabel">Вид гриба</div>
+        <select class="finput" id="inp-ms">
+          <option value="">Выберите вид</option>
+          <option>Белый гриб</option>
+          <option>Подберёзовик</option>
+          <option>Подосиновик</option>
+          <option>Лисичка</option>
+          <option>Маслёнок</option>
+          <option>Опята</option>
+          <option>Груздь</option>
+          <option>Рыжик</option>
+          <option>Сыроежка</option>
+          <option>Шампиньон</option>
+          <option>Трюфель</option>
+          <option>Моховик</option>
+          <option>Козляк</option>
+          <option>Другой вид</option>
+        </select>
+        <div class="flabel" style="margin-top:10px">Район сбора</div>
+        <select class="finput" id="inp-area">
+          <option value="">Выберите район</option>
+          <option>Самый короткий маршрут</option>
+          <option>В сторону Польши</option>
+          <option>Район первых лисичек</option>
+          <option>Дальний обход рядом с ж.д. дорогой</option>
+          <option>Средний обход ж.д. дорога чуть дальше</option>
+        </select>
+      </div>
+
+      <div class="hidden" id="g-fish">
+        <div class="fgroup">
+          <div class="flabel">Вид рыбы</div>
+          <select class="finput" id="inp-fs">
+            <option value="">Выберите вид</option>
+            <option>Щука</option>
+            <option>Судак</option>
+            <option>Окунь</option>
+            <option>Карп</option>
+            <option>Лещ</option>
+            <option>Карась</option>
+            <option>Сом</option>
+            <option>Форель</option>
+            <option>Плотва</option>
+            <option>Налим</option>
+            <option>Жерех</option>
+            <option>Голавль</option>
+            <option>Другой вид</option>
+          </select>
+        </div>
+        <div class="fgroup" style="margin-top:12px">
+          <div class="flabel">Глубина (метры)</div>
+          <input class="finput" id="inp-depth" type="number" step="0.1" min="0" max="100" placeholder="Напр: 3.5">
+        </div>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <div class="flabel">GPS координаты</div>
+      <div class="gps-row">
+        <input class="finput" id="inp-lat" type="number" step="0.000001" placeholder="Широта">
+        <input class="finput" id="inp-lon" type="number" step="0.000001" placeholder="Долгота">
+      </div>
+      <button class="gpsbtn" onclick="getGPS()" style="width:100%;margin-top:8px">📍 Определить моё местоположение</button>
+    </div>
+
+    <div class="fgroup">
+      <div class="flabel">Комментарий (необязательно)</div>
+      <input class="finput" id="inp-com" type="text" placeholder="Заметки, условия, улов...">
+    </div>
+
+    <button class="savebtn" onclick="savePoint()">✅ Сохранить точку</button>
+  </div>
+
+  <!-- ROUTE -->
+  <div class="screen" id="screen-route">
+    <div class="route-info">🧭 Выбери одну или несколько точек — маршрут построится от твоего местоположения. GPS должен быть включён.</div>
+    <div class="route-count" id="route-count" style="padding:8px 4px"></div>
+    <div id="rlist"></div>
+    <button class="rbtn" onclick="openRoute()">🗺️ Открыть маршрут в Google Картах</button>
+    <button class="rbtn" onclick="openRouteYandex()" style="background:var(--amber);margin-top:6px">🗺️ Открыть в Яндекс Картах</button>
+    <button onclick="selectedRoute.clear(); renderRoute()" style="margin-top:8px;width:100%;padding:10px;border:1px solid var(--border2);border-radius:var(--radius-xs);background:var(--bg);color:var(--text2);font-size:13px;cursor:pointer">Снять выбор</button>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="overlay hidden" id="overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="m-title"></div>
+    <div id="m-body"></div>
+    <div class="mbtns" id="m-btns"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+// ─── DATA ───────────────────────────────────────────────────────────────────
+let points = [];
+let selectedRoute = new Set();
+let currentType = 'mushroom';
+let map, markers = [];
+let editId = null;
+
+function loadData() {
+  try { points = JSON.parse(localStorage.getItem('gr_points') || '[]'); } catch(e) { points = []; }
+}
+
+function saveData() {
+  localStorage.setItem('gr_points', JSON.stringify(points));
+}
+
+loadData();
+
+// ─── TABS ────────────────────────────────────────────────────────────────────
+function goTab(t) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.ntab').forEach(b => b.classList.remove('active'));
+  document.getElementById('screen-' + t).classList.add('active');
+  document.getElementById('tab-' + t).classList.add('active');
+  if (t === 'map') setTimeout(() => map && map.invalidateSize(), 150);
+  if (t === 'list') { updateSpeciesFilter(); renderList(); }
+  if (t === 'route') renderRoute();
+}
+
+// ─── MAP ─────────────────────────────────────────────────────────────────────
+// ─── GPS TRACKING ─────────────────────────────────────────────────────────────
+let myLocationMarker = null;
+let myAccuracyCircle = null;
+let watchId = null;
+let firstLocate = true;
+
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([55.75, 37.62], 9);
+
+  // Офлайн-кэширование тайлов через кастомный TileLayer
+  const OfflineTileLayer = L.TileLayer.extend({
+    createTile(coords, done) {
+      const tile = document.createElement('img');
+      tile.setAttribute('role', 'presentation');
+      const url = this.getTileUrl(coords);
+      // Пробуем взять из кэша (localStorage для постоянного хранения)
+      const cacheKey = 'tile_' + coords.z + '_' + coords.x + '_' + coords.y;
+
+      // Пробуем взять из кэша
+      let cached = null;
+      try { cached = localStorage.getItem(cacheKey); } catch(e) {}
+      if (cached) {
+        tile.src = cached;
+        done(null, tile);
+        return tile;
+      }
+
+      // Загружаем и кэшируем
+      fetch(url)
+        .then(r => r.blob())
+        .then(blob => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try { localStorage.setItem(cacheKey, reader.result); } catch(e) {}
+            tile.src = reader.result;
+            done(null, tile);
+          };
+          reader.readAsDataURL(blob);
+        })
+        .catch(() => {
+          // Офлайн — показываем пустой тайл
+          tile.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+          done(null, tile);
+        });
+      return tile;
+    }
+  });
+
+  new OfflineTileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19, crossOrigin: true
+  }).addTo(map);
+
+  map.on('click', e => {
+    document.getElementById('inp-lat').value = e.latlng.lat.toFixed(6);
+    document.getElementById('inp-lon').value = e.latlng.lng.toFixed(6);
+    goTab('add');
+    toast('Координаты установлены');
+  });
+
+  renderMapMarkers();
+  startLiveTracking();
+}
+
+function startLiveTracking() {
+  if (!navigator.geolocation) return;
+
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      const acc = pos.coords.accuracy;
+
+      // Обновляем или создаём маркер «Я здесь»
+      if (myLocationMarker) {
+        myLocationMarker.setLatLng([lat, lon]);
+        myAccuracyCircle.setLatLng([lat, lon]);
+        myAccuracyCircle.setRadius(acc);
+      } else {
+        myAccuracyCircle = L.circle([lat, lon], {
+          radius: acc, color: '#378ADD', fillColor: '#378ADD',
+          fillOpacity: 0.15, weight: 1
+        }).addTo(map);
+
+        myLocationMarker = L.marker([lat, lon], {
+          icon: L.divIcon({
+            html: `<div style="width:16px;height:16px;background:#378ADD;border:3px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>`,
+            className: '', iconSize: [16,16], iconAnchor: [8,8]
+          }),
+          zIndexOffset: 1000
+        }).addTo(map).bindPopup('Вы здесь');
+      }
+
+      // При первом получении координат — центрируем карту
+      if (firstLocate) {
+        map.setView([lat, lon], 14);
+        firstLocate = false;
+        const hint = document.getElementById('map-hint');
+        if (hint) hint.textContent = 'Нажми на карту, чтобы добавить точку';
+      }
+
+      // Обновляем поля формы если они пустые
+      const latField = document.getElementById('inp-lat');
+      const lonField = document.getElementById('inp-lon');
+      if (!latField.value) latField.value = lat.toFixed(6);
+      if (!lonField.value) lonField.value = lon.toFixed(6);
+    },
+    err => {
+      if (firstLocate) {
+        const hint = document.getElementById('map-hint');
+        if (hint) hint.textContent = 'GPS недоступен — разрешите геолокацию';
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+function centerOnMe() {
+  if (myLocationMarker) {
+    map.setView(myLocationMarker.getLatLng(), 15);
+    toast('📍 Карта центрирована');
+  } else {
+    toast('Ожидаем GPS...');
+  }
+}
+
+function renderMapMarkers() {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  points.forEach(p => {
+    const color = p.type === 'mushroom' ? '#1D9E75' : '#378ADD';
+    const emoji = p.type === 'mushroom' ? '🍄' : '🐟';
+    const icon = L.divIcon({
+      html: `<div style="background:${color};color:white;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:18px;border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)">${emoji}</div>`,
+      className: '', iconSize: [34,34], iconAnchor: [17,17]
+    });
+    const m = L.marker([p.lat, p.lon], {icon})
+      .addTo(map)
+      .bindPopup(`<b>${p.name}</b><br>${p.species || ''}${p.type==='fish'&&p.depth?' · '+p.depth+'м':''}<br><small>${fmtDate(p.date)}</small>`);
+    m.on('click', () => openModal(p.id));
+    markers.push(m);
+  });
+
+  if (points.length > 0 && markers.length > 0) {
+    try {
+      const group = L.featureGroup(markers);
+      map.fitBounds(group.getBounds().pad(0.15), {maxZoom: 14});
+    } catch(e) {}
+  }
+}
+
+// ─── LIST ─────────────────────────────────────────────────────────────────────
+function updateSpeciesFilter() {
+  const ft = document.getElementById('ft').value;
+  const sel = document.getElementById('fs');
+  const prev = sel.value;
+  const relevant = ft ? points.filter(p => p.type === ft) : points;
+  const species = [...new Set(relevant.map(p => p.species).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Все виды</option>' +
+    species.map(s => `<option${s===prev?' selected':''}>${s}</option>`).join('');
+}
+
+function renderList() {
+  const ft = document.getElementById('ft').value;
+  const fs = document.getElementById('fs').value;
+  const d1 = document.getElementById('fd1').value;
+  const d2 = document.getElementById('fd2').value;
+
+  let list = points.filter(p => {
+    if (ft && p.type !== ft) return false;
+    if (fs && p.species !== fs) return false;
+    const d = p.date.slice(0,10);
+    if (d1 && d < d1) return false;
+    if (d2 && d > d2) return false;
+    return true;
+  }).sort((a,b) => b.date.localeCompare(a.date));
+
+  const cont = document.getElementById('plist');
+  if (!list.length) {
+    cont.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div>Точек нет</div><div style="font-size:13px;margin-top:6px">Добавьте первую через «+»</div></div>`;
+    return;
+  }
+
+  cont.innerHTML = list.map(p => `
+    <div class="pcard" onclick="openModal(${p.id})">
+      <div class="pcard-top">
+        <div class="picon ${p.type==='mushroom'?'picon-m':'picon-f'}">${p.type==='mushroom'?'🍄':'🐟'}</div>
+        <div style="flex:1;min-width:0">
+          <div class="pname">${esc(p.name)}</div>
+          <div class="psub">${esc(p.species||'—')}${p.type==='fish'&&p.depth?' · глубина '+p.depth+' м':''}</div>
+        </div>
+        <span class="pbadge ${p.type==='mushroom'?'pbadge-m':'pbadge-f'}">${p.type==='mushroom'?'Грибы':'Рыба'}</span>
+      </div>
+      <div class="pmeta">
+        <span>📅 ${fmtDate(p.date)}</span>
+        <span>📍 ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ─── ADD FORM ─────────────────────────────────────────────────────────────────
+function setType(t) {
+  currentType = t;
+  document.getElementById('tb-m').classList.toggle('active', t==='mushroom');
+  document.getElementById('tb-f').classList.toggle('active', t==='fish');
+  document.getElementById('g-mushroom').classList.toggle('hidden', t!=='mushroom');
+  document.getElementById('g-fish').classList.toggle('hidden', t!=='fish');
+}
+
+function getGPS() {
+  if (!navigator.geolocation) { toast('GPS не поддерживается'); return; }
+  toast('Определяем GPS...');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      document.getElementById('inp-lat').value = pos.coords.latitude.toFixed(6);
+      document.getElementById('inp-lon').value = pos.coords.longitude.toFixed(6);
+      toast('✅ GPS получен!');
+    },
+    err => {
+      if (err.code === 1) toast('Разрешите доступ к геолокации');
+      else toast('Не удалось получить GPS');
+    },
+    { enableHighAccuracy: true, timeout: 15000 }
+  );
+}
+
+function savePoint() {
+  const name = document.getElementById('inp-name').value.trim();
+  const lat  = parseFloat(document.getElementById('inp-lat').value);
+  const lon  = parseFloat(document.getElementById('inp-lon').value);
+
+  if (!name) { toast('⚠️ Введите название'); return; }
+  if (isNaN(lat) || isNaN(lon)) { toast('⚠️ Нужны GPS координаты'); return; }
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) { toast('⚠️ Некорректные координаты'); return; }
+
+  const p = {
+    id: editId || Date.now(),
+    type: currentType,
+    name,
+    lat, lon,
+    date: new Date().toISOString(),
+    comment: document.getElementById('inp-com').value.trim(),
+  };
+
+  if (currentType === 'mushroom') {
+    p.species = document.getElementById('inp-ms').value;
+    p.area = document.getElementById('inp-area').value;
+  } else {
+    p.species = document.getElementById('inp-fs').value;
+    const d = document.getElementById('inp-depth').value;
+    if (d) p.depth = parseFloat(d);
+  }
+
+  if (editId) {
+    const i = points.findIndex(x => x.id === editId);
+    if (i !== -1) points[i] = p;
+    editId = null;
+  } else {
+    points.push(p);
+  }
+
+  saveData();
+  resetForm();
+  renderMapMarkers();
+  toast('✅ Точка сохранена!');
+  goTab('list');
+}
+
+function resetForm() {
+  ['inp-name','inp-lat','inp-lon','inp-com','inp-depth'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('inp-ms').value = '';
+  document.getElementById('inp-fs').value = '';
+  document.getElementById('inp-area').value = '';
+  setType('mushroom');
+  editId = null;
+}
+
+// ─── MODAL ────────────────────────────────────────────────────────────────────
+function openModal(id) {
+  const p = points.find(x => x.id === id);
+  if (!p) return;
+
+  document.getElementById('m-title').textContent = (p.type==='mushroom'?'🍄 ':'🐟 ') + p.name;
+  document.getElementById('m-body').innerHTML = `
+    <div class="mrow"><span class="mlabel">Тип</span><span class="mvalue">${p.type==='mushroom'?'Грибы':'Рыбалка'}</span></div>
+    <div class="mrow"><span class="mlabel">Вид</span><span class="mvalue">${esc(p.species||'—')}</span></div>
+    ${p.type==='mushroom'&&p.area?`<div class="mrow"><span class="mlabel">Район</span><span class="mvalue">${esc(p.area)}</span></div>`:''}
+    ${p.type==='fish'&&p.depth?`<div class="mrow"><span class="mlabel">Глубина</span><span class="mvalue">${p.depth} м</span></div>`:''}
+    <div class="mrow"><span class="mlabel">Координаты</span><span class="mvalue">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</span></div>
+    <div class="mrow"><span class="mlabel">Дата</span><span class="mvalue">${fmtDate(p.date)}</span></div>
+    ${p.comment?`<div class="mrow"><span class="mlabel">Комментарий</span><span class="mvalue">${esc(p.comment)}</span></div>`:''}
+  `;
+  document.getElementById('m-btns').innerHTML = `
+    <button class="btn-del" onclick="delPoint(${id})">🗑️ Удалить</button>
+    <button class="btn-nav" onclick="navTo(${p.lat},${p.lon})">🧭 Навигация</button>
+    <button class="btn-route" onclick="addToRoute(${id})">➕ В маршрут</button>
+  `;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('overlay')) {
+    document.getElementById('overlay').classList.add('hidden');
+  }
+}
+
+function delPoint(id) {
+  if (!confirm('Удалить эту точку?')) return;
+  points = points.filter(p => p.id !== id);
+  saveData();
+  renderMapMarkers();
+  renderList();
+  closeModal();
+  toast('Точка удалена');
+}
+
+function navTo(lat, lon) {
+  closeModal();
+  window.open(`https://maps.google.com/maps?daddr=${lat},${lon}`, '_blank');
+}
+
+function addToRoute(id) {
+  selectedRoute.add(id);
+  closeModal();
+  toast('✅ Добавлено в маршрут');
+  goTab('route');
+}
+
+// ─── ROUTE ────────────────────────────────────────────────────────────────────
+function renderRoute() {
+  const cont = document.getElementById('rlist');
+  const cnt  = document.getElementById('route-count');
+
+  if (!points.length) {
+    cont.innerHTML = `<div class="empty"><div class="empty-icon">🧭</div><div>Нет сохранённых точек</div></div>`;
+    cnt.textContent = '';
+    return;
+  }
+
+  const sel = selectedRoute.size;
+  cnt.textContent = sel ? `Выбрано: ${sel} точек` : 'Ни одной точки не выбрано';
+
+  cont.innerHTML = points.map((p,i) => {
+    const on = selectedRoute.has(p.id);
+    return `
+      <div class="route-item">
+        <div class="rcheck ${on?'on':''}" onclick="toggleRoute(${p.id}, this)">
+          ${on?'✓':''}
+        </div>
+        <div style="flex:1">
+          <div class="rname">${p.type==='mushroom'?'🍄':'🐟'} ${esc(p.name)}</div>
+          <div class="rsub">${esc(p.species||'—')} · ${fmtDate(p.date)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleRoute(id, el) {
+  if (selectedRoute.has(id)) {
+    selectedRoute.delete(id);
+    el.classList.remove('on');
+    el.textContent = '';
+  } else {
+    selectedRoute.add(id);
+    el.classList.add('on');
+    el.textContent = '✓';
+  }
+  document.getElementById('route-count').textContent =
+    selectedRoute.size ? `Выбрано: ${selectedRoute.size} точек` : 'Ни одной точки не выбрано';
+}
+
+function getRoutePoints() {
+  return [...selectedRoute].map(id => points.find(p => p.id === id)).filter(Boolean);
+}
+
+function openRoute() {
+  const sel = getRoutePoints();
+  if (sel.length < 1) { toast('⚠️ Выберите хотя бы 1 точку'); return; }
+
+  if (myLocationMarker) {
+    const me = myLocationMarker.getLatLng();
+    const coords = [me.lat + ',' + me.lng, ...sel.map(p => p.lat + ',' + p.lon)].join('/');
+    window.open(`https://maps.google.com/maps/dir/${coords}`, '_blank');
+  } else {
+    // GPS неизвестен — строим между точками
+    if (sel.length < 2) { toast('⚠️ GPS недоступен, выберите минимум 2 точки'); return; }
+    const coords = sel.map(p => p.lat + ',' + p.lon).join('/');
+    window.open(`https://maps.google.com/maps/dir/${coords}`, '_blank');
+  }
+}
+
+function openRouteYandex() {
+  const sel = getRoutePoints();
+  if (sel.length < 1) { toast('⚠️ Выберите хотя бы 1 точку'); return; }
+
+  let from, waypoints;
+  if (myLocationMarker) {
+    const me = myLocationMarker.getLatLng();
+    from = me.lat + ',' + me.lng;
+  } else {
+    if (sel.length < 2) { toast('⚠️ GPS недоступен, выберите минимум 2 точки'); return; }
+    from = sel[0].lat + ',' + sel[0].lon;
+  }
+  const to = sel[sel.length - 1].lat + ',' + sel[sel.length - 1].lon;
+  window.open(`https://maps.yandex.ru/?rtext=${from}~${to}&rtt=auto`, '_blank');
+}
+
+// ─── EXPORT ───────────────────────────────────────────────────────────────────
+function exportExcel() {
+  if (!points.length) { toast('Нет точек для экспорта'); return; }
+  const data = points.map(p => ({
+    'Тип':            p.type === 'mushroom' ? 'Грибы' : 'Рыбалка',
+    'Название':       p.name,
+    'Вид':            p.species || '',
+    'Район':          p.type === 'mushroom' ? (p.area || '') : '',
+    'Глубина (м)':    p.type === 'fish' ? (p.depth || '') : '',
+    'Широта':         p.lat,
+    'Долгота':        p.lon,
+    'Дата':           fmtDate(p.date),
+    'Комментарий':    p.comment || '',
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [10,20,18,20,12,12,12,14,25].map(w => ({wch:w}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Точки');
+  XLSX.writeFile(wb, 'GribRyba_' + new Date().toISOString().slice(0,10) + '.xlsx');
+  toast('📊 Excel скачан!');
+}
+
+function exportJSON() {
+  const blob = new Blob([JSON.stringify(points, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'GribRyba_backup_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  toast('💾 Бэкап сохранён');
+}
+
+function importJSON() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const imported = JSON.parse(ev.target.result);
+        if (!Array.isArray(imported)) { toast('⚠️ Неверный формат файла'); return; }
+        const existing = new Set(points.map(p => p.id));
+        let added = 0;
+        imported.forEach(p => {
+          if (!existing.has(p.id)) { points.push(p); added++; }
+        });
+        saveData();
+        renderMapMarkers();
+        renderList();
+        toast(`✅ Импортировано: ${added} точек`);
+      } catch(e) { toast('⚠️ Ошибка чтения файла'); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function fmtDate(iso) {
+  try { return new Date(iso).toLocaleDateString('ru', {day:'2-digit',month:'2-digit',year:'numeric'}); }
+  catch(e) { return iso.slice(0,10); }
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  initMap();
+  renderList();
+});
+
+// Закрытие модального окна кнопкой "Назад" на Android
+window.addEventListener('popstate', () => {
+  const overlay = document.getElementById('overlay');
+  if (!overlay.classList.contains('hidden')) {
+    overlay.classList.add('hidden');
+    history.pushState(null, '');
+  }
+});
+history.pushState(null, '');
+</script>
+</body>
+</html>
