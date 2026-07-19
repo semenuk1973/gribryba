@@ -172,29 +172,28 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
         <button class="tbtn" id="tb-f" onclick="setType('fish')">🐟 Рыбалка</button>
       </div>
     </div>
-    <div class="fg">
-      <div class="fl">Название</div>
-      <input class="fi" id="inp-name" type="text" placeholder="Напр: Поляна у ручья">
-    </div>
     <div class="fsec">
       <div class="fg" id="g-mushroom">
-        <div class="fl">Вид гриба</div>
-        <select class="fi" id="inp-ms">
-          <option>Белый гриб</option>
-          <option>Подберёзовик</option>
-          <option>Подосиновик</option>
-          <option>Лисичка</option>
-          <option>Маслёнок</option>
-          <option>Летний опенок</option>
-          <option>Груздь</option>
-          <option>Рыжик</option>
-          <option>Свалка</option>
-          <option>Шампиньон</option>
-          <option>Непонятный гриб</option>
-          <option>Моховик</option>
-          <option>Козляк</option>
-          <option>Другой вид</option>
-        </select>
+        <div class="fl">Название гриба</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div id="mushroom-preview" style="width:56px;height:56px;flex-shrink:0;border-radius:10px;overflow:hidden;background:var(--bg2);display:flex;align-items:center;justify-content:center"></div>
+          <select class="fi" id="inp-ms" onchange="updateMushroomPreview()" style="flex:1">
+            <option>Белый гриб</option>
+            <option>Подберёзовик</option>
+            <option>Подосиновик</option>
+            <option>Лисичка</option>
+            <option>Маслёнок</option>
+            <option>Летний опенок</option>
+            <option>Груздь</option>
+            <option>Рыжик</option>
+            <option>Свалка</option>
+            <option>Шампиньон</option>
+            <option>Непонятный гриб</option>
+            <option>Моховик</option>
+            <option>Козляк</option>
+            <option>Другой вид</option>
+          </select>
+        </div>
         <div class="fl" style="margin-top:8px">Район сбора</div>
         <select class="fi" id="inp-area">
           <option>Самый короткий маршрут</option>
@@ -203,9 +202,17 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
           <option>Дальний обход рядом с ж.д. дорогой</option>
           <option>Средний обход ж.д. дорога чуть дальше</option>
         </select>
+        <div id="g-desc-mushroom" class="hidden">
+          <div class="fl" style="margin-top:8px">Описание точки</div>
+          <input class="fi" id="inp-name" type="text" placeholder="Опишите место...">
+        </div>
       </div>
       <div class="hidden" id="g-fish">
         <div class="fg">
+          <div class="fl">Описание точки</div>
+          <input class="fi" id="inp-name-fish" type="text" placeholder="Напр: Яма у камней">
+        </div>
+        <div class="fg" style="margin-top:10px">
           <div class="fl">Вид рыбы</div>
           <select class="fi" id="inp-fs">
             <option value="">Выберите вид</option>
@@ -230,7 +237,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
       </div>
       <button class="gpsbtn" onclick="getGPS()" style="margin-top:8px">📍 Определить моё местоположение</button>
     </div>
-    <div class="fg">
+    <div class="fg" id="g-comment-fish" class="hidden">
       <div class="fl">Комментарий (необязательно)</div>
       <input class="fi" id="inp-com" type="text" placeholder="Заметки...">
     </div>
@@ -303,7 +310,7 @@ function goTab(t) {
   if (t === 'list')  { updateSpeciesFilter(); renderList(); }
   if (t === 'route') { renderRoute(); }
   if (t === 'zones') { renderZonesList(); }
-  if (t === 'add')   { clearCoords(); getFreshGPS(); }
+  if (t === 'add')   { clearCoords(); getFreshGPS(); if (currentType==='mushroom') updateMushroomPreview(); }
 }
 
 // ── MAP ───────────────────────────────────────────────────────────────────────
@@ -344,6 +351,38 @@ function initMap() {
   startTracking();
 }
 
+const MUSHROOM_SVG = {
+  'Белый гриб': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="16" rx="16" ry="11" fill="#8B4513"/><ellipse cx="20" cy="15" rx="14" ry="9" fill="#A0522D"/><rect x="16" y="24" width="8" height="12" rx="3" fill="#F5DEB3"/><ellipse cx="20" cy="36" rx="6" ry="2" fill="#D2B48C"/></svg>`,
+  'Подберёзовик': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="14" ry="9" fill="#6B3A2A"/><ellipse cx="20" cy="14" rx="12" ry="7" fill="#8B4513"/><rect x="17" y="22" width="6" height="14" rx="2" fill="#E8D5B0"/><ellipse cx="20" cy="36" rx="5" ry="2" fill="#C4A882"/></svg>`,
+  'Подосиновик': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="15" ry="10" fill="#CC4400"/><ellipse cx="20" cy="14" rx="13" ry="8" fill="#FF5500"/><rect x="17" y="23" width="6" height="13" rx="2" fill="#F0E0C0"/><ellipse cx="20" cy="36" rx="5" ry="2" fill="#D4B896"/></svg>`,
+  'Лисичка': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="14" ry="8" fill="#FF8C00"/><path d="M8 16 Q12 22 20 23 Q28 22 32 16" fill="#FFA500" stroke="none"/><rect x="17" y="22" width="6" height="12" rx="2" fill="#FFD700"/><ellipse cx="20" cy="34" rx="5" ry="2" fill="#DAA520"/></svg>`,
+  'Маслёнок': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="16" rx="13" ry="8" fill="#8B6914"/><ellipse cx="20" cy="15" rx="11" ry="6" fill="#B8860B" opacity="0.7"/><rect x="17" y="22" width="6" height="12" rx="2" fill="#F5E6C8"/><ellipse cx="20" cy="34" rx="5" ry="2" fill="#DAC99A"/></svg>`,
+  'Летний опенок': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="14" rx="12" ry="7" fill="#C8A000"/><path d="M10 15 Q14 20 20 21 Q26 20 30 15" fill="#DAA520"/><rect x="18" y="20" width="4" height="15" rx="2" fill="#E8D080"/><ellipse cx="20" cy="35" rx="4" ry="2" fill="#C8B060"/></svg>`,
+  'Груздь': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="15" ry="9" fill="#E8E0C8"/><path d="M7 16 Q12 24 20 25 Q28 24 33 16" fill="#F5F0E0"/><rect x="17" y="23" width="6" height="12" rx="2" fill="#F5F5E8"/><ellipse cx="20" cy="35" rx="5" ry="2" fill="#D8D0B8"/></svg>`,
+  'Рыжик': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="14" ry="8" fill="#E06000"/><path d="M8 16 Q12 23 20 24 Q28 23 32 16" fill="#FF7020"/><rect x="17" y="22" width="6" height="13" rx="2" fill="#FFC080"/><ellipse cx="20" cy="35" rx="5" ry="2" fill="#E0A060"/></svg>`,
+  'Свалка': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="18" width="20" height="16" rx="2" fill="#888"/><rect x="8" y="14" width="24" height="6" rx="2" fill="#999"/><rect x="14" y="10" width="12" height="6" rx="2" fill="#777"/><line x1="16" y1="22" x2="16" y2="30" stroke="#666" stroke-width="1.5"/><line x1="20" y1="22" x2="20" y2="30" stroke="#666" stroke-width="1.5"/><line x1="24" y1="22" x2="24" y2="30" stroke="#666" stroke-width="1.5"/></svg>`,
+  'Шампиньон': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="14" ry="9" fill="#E8E8E8"/><ellipse cx="20" cy="14" rx="12" ry="7" fill="#F5F5F5"/><rect x="17" y="22" width="6" height="13" rx="2" fill="#F0F0F0"/><ellipse cx="22" cy="24" rx="3" ry="1" fill="#E0E0E0"/><ellipse cx="20" cy="35" rx="5" ry="2" fill="#D0D0D0"/></svg>`,
+  'Непонятный гриб': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="13" ry="8" fill="#9B59B6"/><rect x="17" y="22" width="6" height="13" rx="2" fill="#C39BD3"/><text x="20" y="17" text-anchor="middle" font-size="10" fill="white" font-weight="bold">?</text><ellipse cx="20" cy="35" rx="5" ry="2" fill="#A569BD"/></svg>`,
+  'Моховик': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="13" ry="8" fill="#4A7C3F"/><ellipse cx="20" cy="14" rx="11" ry="6" fill="#5A8C4F"/><rect x="17" y="22" width="6" height="13" rx="2" fill="#C8D8A0"/><ellipse cx="20" cy="35" rx="5" ry="2" fill="#A0B870"/></svg>`,
+  'Козляк': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="12" ry="8" fill="#B8860B"/><ellipse cx="20" cy="14" rx="10" ry="6" fill="#C89A20"/><rect x="17" y="22" width="6" height="13" rx="2" fill="#E8CC80"/><ellipse cx="20" cy="35" rx="5" ry="2" fill="#C8A860"/></svg>`,
+  'Другой вид': `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="15" rx="13" ry="8" fill="#7F8C8D"/><rect x="17" y="22" width="6" height="13" rx="2" fill="#BDC3C7"/><ellipse cx="20" cy="35" rx="5" ry="2" fill="#95A5A6"/></svg>`,
+};
+
+function updateMushroomPreview() {
+  const species = document.getElementById('inp-ms').value;
+  const preview = document.getElementById('mushroom-preview');
+  const svg = MUSHROOM_SVG[species];
+  preview.innerHTML = svg || MUSHROOM_SVG['Другой вид'];
+  // Показываем поле описания только для непонятного гриба
+  const descBlock = document.getElementById('g-desc-mushroom');
+  if (species === 'Непонятный гриб' || species === 'Другой вид') {
+    descBlock.classList.remove('hidden');
+  } else {
+    descBlock.classList.add('hidden');
+    document.getElementById('inp-name').value = '';
+  }
+}
+
 const MUSHROOM_ICONS = {
   'Белый гриб':    '🟤',
   'Подберёзовик':  '🍂',
@@ -362,23 +401,15 @@ const MUSHROOM_ICONS = {
 };
 
 function getMarkerIcon(p) {
-  if (p.type === 'fish') {
-    return L.divIcon({
-      html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">
-        <div style="background:#378ADD;color:#fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:17px;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3)">🐟</div>
-        <div style="background:rgba(255,255,255,0.92);color:#185FA5;font-size:10px;font-weight:600;padding:1px 5px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.2);max-width:80px;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
-      </div>`,
-      className: '', iconSize: [34, 52], iconAnchor: [17, 17]
-    });
-  }
-  const emoji = MUSHROOM_ICONS[p.species] || '🍄';
-  const color = p.species === 'Свалка' ? '#888' : '#1D9E75';
+  const svg = p.type === 'mushroom' ? (MUSHROOM_SVG[p.species] || MUSHROOM_SVG['Другой вид']) : null;
+  const color = p.type === 'fish' ? '#378ADD' : (p.species === 'Свалка' ? '#888' : '#1D9E75');
+  const inner = p.type === 'fish'
+    ? `<div style="background:#378ADD;color:#fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:17px;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3)">🐟</div>`
+    : `<div style="background:${color};border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);overflow:hidden;padding:3px">${svg}</div>`;
+  const label = p.name || p.species || '';
   return L.divIcon({
-    html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">
-      <div style="background:${color};color:#fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:17px;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3)">${emoji}</div>
-      <div style="background:rgba(255,255,255,0.92);color:#0F6E56;font-size:10px;font-weight:600;padding:1px 5px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.2);max-width:80px;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
-    </div>`,
-    className: '', iconSize: [34, 52], iconAnchor: [17, 17]
+    html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">${inner}<div style="background:rgba(255,255,255,0.92);color:#333;font-size:10px;font-weight:600;padding:1px 5px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.2);max-width:90px;overflow:hidden;text-overflow:ellipsis">${label}</div></div>`,
+    className: '', iconSize: [34, 54], iconAnchor: [17, 17]
   });
 }
 function renderMapMarkers() {
@@ -585,6 +616,7 @@ function setType(t) {
   document.getElementById('tb-f').classList.toggle('active', t==='fish');
   document.getElementById('g-mushroom').classList.toggle('hidden', t!=='mushroom');
   document.getElementById('g-fish').classList.toggle('hidden', t!=='fish');
+  if (t === 'mushroom') updateMushroomPreview();
 }
 
 function clearCoords() {
@@ -627,18 +659,27 @@ function getGPS() {
 }
 
 function savePoint() {
-  const name = document.getElementById('inp-name').value.trim();
+  const species = currentType === 'mushroom' ? document.getElementById('inp-ms').value : '';
+  const needsDesc = species === 'Непонятный гриб' || species === 'Другой вид';
+  const nameVal = currentType === 'mushroom'
+    ? (needsDesc ? document.getElementById('inp-name').value.trim() : species)
+    : document.getElementById('inp-name-fish').value.trim();
   const lat = parseFloat(document.getElementById('inp-lat').value);
   const lon = parseFloat(document.getElementById('inp-lon').value);
-  if (!name) { toast('⚠️ Введите название'); return; }
+  if (!nameVal && currentType === 'fish') { toast('⚠️ Введите описание точки'); return; }
   if (isNaN(lat) || isNaN(lon)) { toast('⚠️ Ожидаем GPS... нажми 📍 или подожди'); return; }
   if (!gpsReady) { toast('⚠️ GPS ещё не определён — подожди или нажми 📍'); return; }
-  const p = { id: Date.now(), type: currentType, name, lat, lon, date: new Date().toISOString(), comment: document.getElementById('inp-com').value.trim() };
-  if (currentType === 'mushroom') { p.species = document.getElementById('inp-ms').value; p.area = document.getElementById('inp-area').value; }
+  const p = { id: Date.now(), type: currentType, name: nameVal, lat, lon, date: new Date().toISOString(), comment: document.getElementById('inp-com') ? document.getElementById('inp-com').value.trim() : '' };
+  if (currentType === 'mushroom') { p.species = species; p.area = document.getElementById('inp-area').value; }
   else { p.species = document.getElementById('inp-fs').value; const d = document.getElementById('inp-depth').value; if (d) p.depth = parseFloat(d); }
   points.push(p); saveData();
-  ['inp-name','inp-lat','inp-lon','inp-com','inp-depth'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('inp-name').value = '';
+  document.getElementById('inp-name-fish').value = '';
+  document.getElementById('inp-lat').value = '';
+  document.getElementById('inp-lon').value = '';
+  if (document.getElementById('inp-com')) document.getElementById('inp-com').value = '';
   document.getElementById('inp-fs').value = '';
+  document.getElementById('inp-depth').value = '';
   renderMapMarkers(); toast('✅ Точка сохранена!'); goTab('list');
 }
 
@@ -648,10 +689,12 @@ const AREAS = ['Самый короткий маршрут','В сторону �
 
 function openModal(id) {
   const p = points.find(x => x.id === id); if (!p) return;
-  document.getElementById('m-title').textContent = (p.type==='mushroom'?'🍄 ':'🐟 ') + p.name;
-  document.getElementById('m-body').innerHTML = `
+  document.getElementById('m-title').textContent = (p.type==='mushroom'?'🍄 ':'🐟 ') + (p.name || p.species || '');
+  const svgIcon = p.type==='mushroom' ? `<div style="width:64px;height:64px;margin:0 auto 12px;border-radius:12px;background:var(--bg2);padding:5px">${MUSHROOM_SVG[p.species]||MUSHROOM_SVG['Другой вид']}</div>` : '';
+  document.getElementById('m-body').innerHTML = svgIcon + `
     <div class="mrow"><span class="mlabel">Тип</span><span class="mvalue">${p.type==='mushroom'?'Грибы':'Рыбалка'}</span></div>
     <div class="mrow"><span class="mlabel">Вид</span><span class="mvalue">${esc(p.species||'—')}</span></div>
+    ${p.name && p.name!==p.species?`<div class="mrow"><span class="mlabel">Описание</span><span class="mvalue">${esc(p.name)}</span></div>`:''}
     ${p.area?`<div class="mrow"><span class="mlabel">Район</span><span class="mvalue">${esc(p.area)}</span></div>`:''}
     ${p.type==='fish'&&p.depth?`<div class="mrow"><span class="mlabel">Глубина</span><span class="mvalue">${p.depth} м</span></div>`:''}
     <div class="mrow"><span class="mlabel">Координаты</span><span class="mvalue">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</span></div>
