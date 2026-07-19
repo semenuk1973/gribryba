@@ -126,7 +126,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 <body>
 <div id="app">
   <header>
-    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.1</span></div>
+    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.2</span></div>
     <div class="hbtns">
       <button class="hbtn" onclick="exportExcel()">📊 Excel</button>
       <button class="hbtn" onclick="exportJSON()">💾 Бэкап</button>
@@ -202,10 +202,8 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
           <option>Дальний обход рядом с ж.д. дорогой</option>
           <option>Средний обход ж.д. дорога чуть дальше</option>
         </select>
-        <div id="g-desc-mushroom" class="hidden">
-          <div class="fl" style="margin-top:8px">Описание точки</div>
-          <input class="fi" id="inp-name" type="text" placeholder="Опишите место...">
-        </div>
+        <div class="fl" style="margin-top:8px">Описание точки</div>
+        <input class="fi" id="inp-name" type="text" placeholder="Опишите место...">
       </div>
       <div class="hidden" id="g-fish">
         <div class="fg">
@@ -373,14 +371,6 @@ function updateMushroomPreview() {
   const preview = document.getElementById('mushroom-preview');
   const svg = MUSHROOM_SVG[species];
   preview.innerHTML = svg || MUSHROOM_SVG['Другой вид'];
-  // Показываем поле описания только для непонятного гриба
-  const descBlock = document.getElementById('g-desc-mushroom');
-  if (species === 'Непонятный гриб' || species === 'Другой вид') {
-    descBlock.classList.remove('hidden');
-  } else {
-    descBlock.classList.add('hidden');
-    document.getElementById('inp-name').value = '';
-  }
 }
 
 const MUSHROOM_ICONS = {
@@ -406,7 +396,10 @@ function getMarkerIcon(p) {
   const inner = p.type === 'fish'
     ? `<div style="background:#378ADD;color:#fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:17px;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3)">🐟</div>`
     : `<div style="background:${color};border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);overflow:hidden;padding:3px">${svg}</div>`;
-  const label = p.name || p.species || '';
+  const unknownSpecies = ['Непонятный гриб', 'Другой вид'];
+  const label = p.type === 'fish'
+    ? (p.name || p.species || '')
+    : (unknownSpecies.includes(p.species) ? (p.name || p.species) : (p.species || p.name || ''));
   return L.divIcon({
     html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">${inner}<div style="background:rgba(255,255,255,0.92);color:#333;font-size:10px;font-weight:600;padding:1px 5px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.2);max-width:90px;overflow:hidden;text-overflow:ellipsis">${label}</div></div>`,
     className: '', iconSize: [34, 54], iconAnchor: [17, 17]
@@ -660,9 +653,9 @@ function getGPS() {
 
 function savePoint() {
   const species = currentType === 'mushroom' ? document.getElementById('inp-ms').value : '';
-  const needsDesc = species === 'Непонятный гриб' || species === 'Другой вид';
+  const descVal = currentType === 'mushroom' ? document.getElementById('inp-name').value.trim() : '';
   const nameVal = currentType === 'mushroom'
-    ? (needsDesc ? document.getElementById('inp-name').value.trim() : species)
+    ? (descVal || species)
     : document.getElementById('inp-name-fish').value.trim();
   const lat = parseFloat(document.getElementById('inp-lat').value);
   const lon = parseFloat(document.getElementById('inp-lon').value);
