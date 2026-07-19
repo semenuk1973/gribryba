@@ -279,7 +279,7 @@ let points = [], zones = [];
 let selectedRoute = new Set();
 let currentType = 'mushroom';
 let map, markers = [], zonePolygons = [];
-let myMarker = null, myCircle = null, firstLocate = true;
+let myMarker = null, myCircle = null, firstLocate = true, gpsReady = false;
 let drawingZone = false, zonePoints = [], zoneTempMarkers = [], zoneTempPoly = null;
 const alertedPoints = new Set(), alertedZones = new Set();
 
@@ -310,10 +310,23 @@ function goTab(t) {
 function initMap() {
   map = L.map('map', { zoomControl: true }).setView([55.75, 37.62], 9);
 
+  // Масштаб
+  L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
+
   // Стандартный tileLayer — работает везде
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 19
   }).addTo(map);
+
+  // Компас (поворот на север)
+  const compass = L.control({ position: 'topright' });
+  compass.onAdd = () => {
+    const div = L.DomUtil.create('div');
+    div.innerHTML = `<button onclick="map.setBearing ? map.setBearing(0) : null" title="На север" style="background:white;border:none;border-radius:50%;width:36px;height:36px;font-size:20px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;margin-top:6px">🧭</button>`;
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  };
+  compass.addTo(map);
 
   map.on('click', e => {
     if (drawingZone) {
@@ -366,7 +379,7 @@ function startTracking() {
         zIndexOffset: 1000
       }).addTo(map).bindPopup('Вы здесь');
     }
-    if (firstLocate) { map.setView([lat, lon], 14); firstLocate = false; }
+    if (firstLocate) { map.setView([lat, lon], 14); firstLocate = false; gpsReady = true; }
     checkProximity(lat, lon);
     checkZones(lat, lon);
   }, () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
@@ -559,6 +572,7 @@ function getFreshGPS() {
       lon.value = pos.coords.longitude.toFixed(6);
       lat.placeholder = 'Широта';
       lon.placeholder = 'Долгота';
+      gpsReady = true;
       toast('✅ GPS получен!');
     },
     () => {
@@ -585,7 +599,8 @@ function savePoint() {
   const lat = parseFloat(document.getElementById('inp-lat').value);
   const lon = parseFloat(document.getElementById('inp-lon').value);
   if (!name) { toast('⚠️ Введите название'); return; }
-  if (isNaN(lat)||isNaN(lon)) { toast('⚠️ Нужны GPS координаты'); return; }
+  if (isNaN(lat) || isNaN(lon)) { toast('⚠️ Ожидаем GPS... нажми 📍 или подожди'); return; }
+  if (!gpsReady) { toast('⚠️ GPS ещё не определён — подожди или нажми 📍'); return; }
   const p = { id: Date.now(), type: currentType, name, lat, lon, date: new Date().toISOString(), comment: document.getElementById('inp-com').value.trim() };
   if (currentType === 'mushroom') { p.species = document.getElementById('inp-ms').value; p.area = document.getElementById('inp-area').value; }
   else { p.species = document.getElementById('inp-fs').value; const d = document.getElementById('inp-depth').value; if (d) p.depth = parseFloat(d); }
