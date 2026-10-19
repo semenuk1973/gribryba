@@ -126,7 +126,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 <body>
 <div id="app">
   <header>
-    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.2</span></div>
+    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.3</span></div>
     <div class="hbtns">
       <button class="hbtn" onclick="exportExcel()">📊 Excel</button>
       <button class="hbtn" onclick="exportJSON()">💾 Бэкап</button>
@@ -177,7 +177,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
         <div class="fl">Название гриба</div>
         <div style="display:flex;gap:10px;align-items:center">
           <div id="mushroom-preview" style="width:56px;height:56px;flex-shrink:0;border-radius:10px;overflow:hidden;background:var(--bg2);display:flex;align-items:center;justify-content:center"></div>
-          <select class="fi" id="inp-ms" onchange="updateMushroomPreview()" style="flex:1">
+          <select class="fi" id="inp-ms" onchange="onSpeciesChange()" style="flex:1">
             <option>Белый гриб</option>
             <option>Подберёзовик</option>
             <option>Подосиновик</option>
@@ -194,6 +194,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
             <option>Другой вид</option>
           </select>
         </div>
+        <input class="fi hidden" id="inp-ms-custom" type="text" maxlength="40" autocomplete="off" placeholder="Впишите название гриба" style="margin-top:8px">
         <div class="fl" style="margin-top:8px">Район сбора</div>
         <select class="fi" id="inp-area">
           <option>Самый короткий маршрут</option>
@@ -308,7 +309,7 @@ function goTab(t) {
   if (t === 'list')  { updateSpeciesFilter(); renderList(); }
   if (t === 'route') { renderRoute(); }
   if (t === 'zones') { renderZonesList(); }
-  if (t === 'add')   { clearCoords(); getFreshGPS(); if (currentType==='mushroom') updateMushroomPreview(); }
+  if (t === 'add')   { refreshSpeciesSelect(); clearCoords(); getFreshGPS(); if (currentType==='mushroom') updateMushroomPreview(); }
 }
 
 // ── MAP ───────────────────────────────────────────────────────────────────────
@@ -371,6 +372,47 @@ function updateMushroomPreview() {
   const preview = document.getElementById('mushroom-preview');
   const svg = MUSHROOM_SVG[species];
   preview.innerHTML = svg || MUSHROOM_SVG['Другой вид'];
+}
+
+// Показать поле для своего названия, когда выбран «Другой вид»
+function onSpeciesChange() {
+  updateMushroomPreview();
+  const other = document.getElementById('inp-ms').value === 'Другой вид';
+  const c = document.getElementById('inp-ms-custom');
+  c.classList.toggle('hidden', !other);
+  if (other) c.focus();
+}
+
+// Полный список видов: встроенные + все, что вы вписали раньше (из сохранённых точек), «Другой вид» — в конце
+function allMushroomSpecies() {
+  const base = MUSHROOM_SPECIES.filter(s => s !== 'Другой вид');
+  const seen = new Set(base.map(s => s.toLowerCase()));
+  const custom = [];
+  points.forEach(p => {
+    if (p.type !== 'mushroom' || !p.species || p.species === 'Другой вид') return;
+    const k = p.species.toLowerCase();
+    if (!seen.has(k)) { seen.add(k); custom.push(p.species); }
+  });
+  custom.sort((a, b) => a.localeCompare(b, 'ru'));
+  return [...base, ...custom, 'Другой вид'];
+}
+
+// Пересобрать выпадающий список в форме добавления, сохранив текущий выбор
+function refreshSpeciesSelect() {
+  const sel = document.getElementById('inp-ms'); if (!sel) return;
+  const cur = sel.value;
+  const list = allMushroomSpecies();
+  sel.innerHTML = list.map(s => `<option>${esc(s)}</option>`).join('');
+  sel.value = list.includes(cur) ? cur : list[0];
+  document.getElementById('inp-ms-custom').classList.toggle('hidden', sel.value !== 'Другой вид');
+}
+
+// Приводим введённое название к аккуратному виду; совпадение с известным видом берём из списка
+function normSpecies(raw) {
+  const s = (raw || '').trim().replace(/\s+/g, ' ');
+  if (!s) return '';
+  const known = allMushroomSpecies().find(x => x.toLowerCase() === s.toLowerCase());
+  return known || (s.charAt(0).toUpperCase() + s.slice(1));
 }
 
 const MUSHROOM_ICONS = {
@@ -652,7 +694,13 @@ function getGPS() {
 }
 
 function savePoint() {
-  const species = currentType === 'mushroom' ? document.getElementById('inp-ms').value : '';
+  let species = '';
+  if (currentType === 'mushroom') {
+    const v = document.getElementById('inp-ms').value;
+    species = v === 'Другой вид'
+      ? (normSpecies(document.getElementById('inp-ms-custom').value) || 'Другой вид')
+      : v;
+  }
   const descVal = currentType === 'mushroom' ? document.getElementById('inp-name').value.trim() : '';
   const nameVal = currentType === 'mushroom'
     ? (descVal || species)
@@ -667,13 +715,14 @@ function savePoint() {
   else { p.species = document.getElementById('inp-fs').value; const d = document.getElementById('inp-depth').value; if (d) p.depth = parseFloat(d); }
   points.push(p); saveData();
   document.getElementById('inp-name').value = '';
+  document.getElementById('inp-ms-custom').value = '';
   document.getElementById('inp-name-fish').value = '';
   document.getElementById('inp-lat').value = '';
   document.getElementById('inp-lon').value = '';
   if (document.getElementById('inp-com')) document.getElementById('inp-com').value = '';
   document.getElementById('inp-fs').value = '';
   document.getElementById('inp-depth').value = '';
-  renderMapMarkers(); toast('✅ Точка сохранена!'); goTab('list');
+  refreshSpeciesSelect(); renderMapMarkers(); toast('✅ Точка сохранена!'); goTab('list');
 }
 
 // ── MODAL ─────────────────────────────────────────────────────────────────────
@@ -715,11 +764,17 @@ function addToRoute(id) { selectedRoute.add(id); closeModal(); toast('✅ Доб
 
 function editPoint(id) {
   const p = points.find(x => x.id === id); if (!p) return;
+  // Если вид вписан вручную (нет в списке) — выбираем «Другой вид» и подставляем название в поле
+  const speciesList = allMushroomSpecies();
+  const isKnown = speciesList.includes(p.species);
+  const selVal = isKnown ? p.species : 'Другой вид';
+  const customVal = isKnown ? '' : (p.species || '');
   document.getElementById('m-title').textContent = '✏️ Изменить данные';
   document.getElementById('m-body').innerHTML = `
     <div class="fg" style="margin-bottom:12px">
       <div class="fl">Вид гриба</div>
-      <select class="fi" id="edit-sp">${MUSHROOM_SPECIES.map(s=>`<option${s===p.species?' selected':''}>${s}</option>`).join('')}</select>
+      <select class="fi" id="edit-sp" onchange="onEditSpeciesChange()">${speciesList.map(s=>`<option${s===selVal?' selected':''}>${esc(s)}</option>`).join('')}</select>
+      <input class="fi${selVal==='Другой вид'?'':' hidden'}" id="edit-sp-custom" type="text" maxlength="40" autocomplete="off" placeholder="Впишите название гриба" value="${esc(customVal)}" style="margin-top:8px">
     </div>
     <div class="fg">
       <div class="fl">Район</div>
@@ -730,9 +785,22 @@ function editPoint(id) {
     <button class="savebtn" style="flex:2;margin-top:0" onclick="saveEdit(${id})">✅ Сохранить</button>`;
 }
 
+function onEditSpeciesChange() {
+  const other = document.getElementById('edit-sp').value === 'Другой вид';
+  const c = document.getElementById('edit-sp-custom');
+  c.classList.toggle('hidden', !other);
+  if (other) c.focus();
+}
+
 function saveEdit(id) {
   const p = points.find(x => x.id === id); if (!p) return;
-  p.species = document.getElementById('edit-sp').value;
+  const oldSpecies = p.species;
+  const v = document.getElementById('edit-sp').value;
+  p.species = v === 'Другой вид'
+    ? (normSpecies(document.getElementById('edit-sp-custom').value) || 'Другой вид')
+    : v;
+  // Если название точки было просто видом гриба (без описания) — обновляем и его
+  if (p.name === oldSpecies) p.name = p.species;
   p.area = document.getElementById('edit-ar').value;
   saveData(); renderMapMarkers(); renderList(); closeModal(); toast('✅ Обновлено');
 }
