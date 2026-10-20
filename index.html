@@ -132,7 +132,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 <body>
 <div id="app">
   <header>
-    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.4</span></div>
+    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.5</span></div>
     <div class="hbtns">
       <button class="hbtn" onclick="exportExcel()">📊 Excel</button>
       <button class="hbtn" onclick="exportJSON()">💾 Бэкап</button>
@@ -202,7 +202,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
             <option>Непонятный гриб</option>
             <option>Моховик</option>
             <option>Козляк</option>
-            <option>Другой вид</option>
+            <option value="Другой вид">✏️ Новый вид — вписать свой…</option>
           </select>
         </div>
         <input class="fi hidden" id="inp-ms-custom" type="text" maxlength="40" autocomplete="off" placeholder="Впишите название гриба" style="margin-top:8px">
@@ -408,12 +408,19 @@ function allMushroomSpecies() {
   return [...base, ...custom, 'Другой вид'];
 }
 
+// Пункты выпадающего списка видов; последний — «вписать свой»
+function speciesOptionsHtml(list, selected) {
+  return list.map(s => s === 'Другой вид'
+    ? `<option value="Другой вид"${s === selected ? ' selected' : ''}>✏️ Новый вид — вписать свой…</option>`
+    : `<option value="${esc(s)}"${s === selected ? ' selected' : ''}>${esc(s)}</option>`).join('');
+}
+
 // Пересобрать выпадающий список в форме добавления, сохранив текущий выбор
 function refreshSpeciesSelect() {
   const sel = document.getElementById('inp-ms'); if (!sel) return;
   const cur = sel.value;
   const list = allMushroomSpecies();
-  sel.innerHTML = list.map(s => `<option>${esc(s)}</option>`).join('');
+  sel.innerHTML = speciesOptionsHtml(list);
   sel.value = list.includes(cur) ? cur : list[0];
   document.getElementById('inp-ms-custom').classList.toggle('hidden', sel.value !== 'Другой вид');
 }
@@ -873,7 +880,7 @@ function editPoint(id) {
   } else document.getElementById('m-body').innerHTML = `
     <div class="fg" style="margin-bottom:12px">
       <div class="fl">Вид гриба</div>
-      <select class="fi" id="edit-sp" onchange="onEditSpeciesChange()">${speciesList.map(s=>`<option${s===selVal?' selected':''}>${esc(s)}</option>`).join('')}</select>
+      <select class="fi" id="edit-sp" onchange="onEditSpeciesChange()">${speciesOptionsHtml(speciesList, selVal)}</select>
       <input class="fi${selVal==='Другой вид'?'':' hidden'}" id="edit-sp-custom" type="text" maxlength="40" autocomplete="off" placeholder="Впишите название гриба" value="${esc(customVal)}" style="margin-top:8px">
     </div>
     ${descHtml}
@@ -949,8 +956,9 @@ function openRouteYandex() {
 // ── EXPORT / IMPORT ───────────────────────────────────────────────────────────
 function exportExcel() {
   if (!points.length) { toast('Нет точек'); return; }
-  const data = points.map(p => ({'Тип': p.type==='mushroom'?'Грибы':'Рыбалка','Название':p.name,'Вид':p.species||'','Район':p.type==='mushroom'?(p.area||''):'','Глубина(м)':p.type==='fish'?(p.depth||''):'','Широта':p.lat,'Долгота':p.lon,'Дата':fmtDate(p.date),'Комментарий':p.comment||''}));
+  const data = points.map(p => ({'Тип': p.type==='mushroom'?'Грибы':'Рыбалка','Название':p.name,'Вид':p.species||'','Район':p.type==='mushroom'?(p.area||''):'','Глубина(м)':p.type==='fish'?(p.depth||''):'','Координаты':p.lat.toFixed(6)+', '+p.lon.toFixed(6),'Дата':fmtDate(p.date),'Комментарий':p.comment||''}));
   const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [{wch:10},{wch:28},{wch:18},{wch:26},{wch:11},{wch:24},{wch:12},{wch:30}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Точки');
   XLSX.writeFile(wb, 'GribRyba_' + new Date().toISOString().slice(0,10) + '.xlsx');
