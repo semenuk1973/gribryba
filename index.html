@@ -132,11 +132,10 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 <body>
 <div id="app">
   <header>
-    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.5</span></div>
+    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.6</span></div>
     <div class="hbtns">
-      <button class="hbtn" onclick="exportExcel()">📊 Excel</button>
-      <button class="hbtn" onclick="exportJSON()">💾 Бэкап</button>
-      <button class="hbtn" onclick="importJSON()">📥 Импорт</button>
+      <button class="hbtn" onclick="exportExcel()">📊 В Excel</button>
+      <button class="hbtn" onclick="importExcel()">📥 Из Excel</button>
     </div>
   </header>
 
@@ -641,7 +640,7 @@ function updateSpeciesFilter() {
   const ft = document.getElementById('ft').value;
   const sel = document.getElementById('fs'), prev = sel.value;
   const sp = [...new Set((ft ? points.filter(p => p.type === ft) : points).map(p => p.species).filter(Boolean))].sort();
-  sel.innerHTML = '<option value="">Все виды</option>' + sp.map(s => `<option${s===prev?' selected':''}>${s}</option>`).join('');
+  sel.innerHTML = '<option value="">Все виды</option>' + sp.map(s => `<option${s===prev?' selected':''}>${esc(s)}</option>`).join('');
 }
 
 function renderList() {
@@ -774,7 +773,7 @@ function closeModal(e) { if (!e || e.target===document.getElementById('overlay')
 function delPoint(id) {
   if (!confirm('Удалить точку?')) return;
   points = points.filter(p => p.id !== id); saveData();
-  renderMapMarkers(); renderList(); closeModal(); toast('Точка удалена');
+  renderMapMarkers(); updateSpeciesFilter(); renderList(); closeModal(); toast('Точка удалена');
 }
 
 // Выбор способа навигации к точке
@@ -912,7 +911,11 @@ function saveEdit(id) {
   // Описание: если очистить — название точки снова станет видом
   const desc = document.getElementById('edit-desc').value.trim().replace(/\s+/g, ' ');
   p.name = desc || p.species || p.name;
-  saveData(); renderMapMarkers(); renderList(); closeModal(); toast('✅ Обновлено');
+  saveData(); renderMapMarkers();
+  // фильтр видов на вкладке «Точки»: добавить новый вид; если правка не подходит под выбранный фильтр — сбросить его
+  const fsEl = document.getElementById('fs');
+  if (fsEl.value && fsEl.value !== p.species) fsEl.value = '';
+  updateSpeciesFilter(); renderList(); closeModal(); toast('✅ Обновлено');
 }
 
 // ── ROUTE ─────────────────────────────────────────────────────────────────────
@@ -953,44 +956,105 @@ function openRouteYandex() {
   window.open('https://maps.yandex.ru/?rtext='+from+'~'+to+'&rtt=auto', '_blank');
 }
 
-// ── EXPORT / IMPORT ───────────────────────────────────────────────────────────
+// ── EXPORT / IMPORT (только Excel) ────────────────────────────────────────────
 function exportExcel() {
-  if (!points.length) { toast('Нет точек'); return; }
+  if (typeof XLSX === 'undefined') { toast('⚠️ Библиотека Excel не загрузилась (нужен интернет)'); return; }
+  if (!points.length && !zones.length) { toast('Нет данных'); return; }
   const data = points.map(p => ({'Тип': p.type==='mushroom'?'Грибы':'Рыбалка','Название':p.name,'Вид':p.species||'','Район':p.type==='mushroom'?(p.area||''):'','Глубина(м)':p.type==='fish'?(p.depth||''):'','Координаты':p.lat.toFixed(6)+', '+p.lon.toFixed(6),'Дата':fmtDate(p.date),'Комментарий':p.comment||''}));
   const ws = XLSX.utils.json_to_sheet(data);
   ws['!cols'] = [{wch:10},{wch:28},{wch:18},{wch:26},{wch:11},{wch:24},{wch:12},{wch:30}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Точки');
+  if (zones.length) {
+    const zd = zones.map(z => ({'Название': z.name, 'Граница': z.points.map(q => q.lat.toFixed(6) + ', ' + q.lon.toFixed(6)).join('; ')}));
+    const wz = XLSX.utils.json_to_sheet(zd);
+    wz['!cols'] = [{wch:24},{wch:90}];
+    XLSX.utils.book_append_sheet(wb, wz, 'Зоны');
+  }
   XLSX.writeFile(wb, 'GribRyba_' + new Date().toISOString().slice(0,10) + '.xlsx');
   toast('📊 Excel скачан!');
 }
 
-function exportJSON() {
-  const blob = new Blob([JSON.stringify({points, zones}, null, 2)], {type:'application/json'});
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = 'GribRyba_backup_' + new Date().toISOString().slice(0,10) + '.json'; a.click();
-  toast('💾 Бэкап сохранён');
+// два числа из текста: «52.1634, 23.5980», «52,1634; 23,5980» и т.п.
+function parseNumPair(v) {
+  const m = String(v == null ? '' : v).match(/-?\d+(?:[.,]\d+)?/g);
+  if (!m || m.length < 2) return null;
+  const a = parseFloat(m[0].replace(',', '.')), b = parseFloat(m[1].replace(',', '.'));
+  if (isNaN(a) || isNaN(b) || Math.abs(a) > 90 || Math.abs(b) > 180) return null;
+  return [a, b];
 }
 
-function importJSON() {
-  const input = document.createElement('input'); input.type='file'; input.accept='.json';
+function parseXlDate(v) {
+  let y, m, d, mt;
+  if (v instanceof Date && !isNaN(v)) { y = v.getFullYear(); m = v.getMonth() + 1; d = v.getDate(); }
+  else {
+    const s = String(v == null ? '' : v).trim();
+    if ((mt = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/))) { d = +mt[1]; m = +mt[2]; y = +mt[3]; }
+    else if ((mt = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) { y = +mt[1]; m = +mt[2]; d = +mt[3]; }
+  }
+  if (!y) return new Date().toISOString();
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).toISOString();
+}
+
+// Загрузка точек и зон из книги Excel (формат — как делает «В Excel»)
+function importFromWorkbook(wb) {
+  const res = { added: 0, dup: 0, bad: 0, zones: 0 };
+  const wsP = wb.Sheets['Точки'] || wb.Sheets[wb.SheetNames[0]];
+  const rows = wsP ? XLSX.utils.sheet_to_json(wsP, { defval: '' }) : [];
+  const keyOf = p => [p.type, p.lat.toFixed(6), p.lon.toFixed(6), p.name, p.species || ''].join('|');
+  const have = new Set(points.map(keyOf));
+  const ids = new Set(points.map(p => p.id));
+  let nextId = Date.now();
+  const newId = () => { while (ids.has(nextId)) nextId++; ids.add(nextId); return nextId; };
+  rows.forEach(r => {
+    let ll = parseNumPair(r['Координаты']);
+    if (!ll && r['Широта'] !== undefined && r['Долгота'] !== undefined) ll = parseNumPair(r['Широта'] + ' ' + r['Долгота']);
+    if (!ll) { res.bad++; return; }
+    const tp = String(r['Тип'] || '').toLowerCase();
+    const type = (tp.indexOf('рыб') >= 0 || tp.indexOf('fish') >= 0) ? 'fish' : 'mushroom';
+    let species = String(r['Вид'] == null ? '' : r['Вид']).trim();
+    if (type === 'mushroom') species = normSpecies(species) || 'Другой вид';
+    const name = String(r['Название'] == null ? '' : r['Название']).trim() || species || (type === 'mushroom' ? 'Гриб' : 'Рыба');
+    const p = { id: 0, type, name, species, lat: ll[0], lon: ll[1], date: parseXlDate(r['Дата']), comment: String(r['Комментарий'] == null ? '' : r['Комментарий']).trim() };
+    if (type === 'mushroom') p.area = String(r['Район'] == null ? '' : r['Район']).trim();
+    else { const dp = parseFloat(String(r['Глубина(м)'] == null ? '' : r['Глубина(м)']).replace(',', '.')); if (!isNaN(dp)) p.depth = dp; }
+    const k = keyOf(p);
+    if (have.has(k)) { res.dup++; return; }
+    have.add(k); p.id = newId(); points.push(p); res.added++;
+  });
+  if (wb.Sheets['Зоны']) {
+    const zrows = XLSX.utils.sheet_to_json(wb.Sheets['Зоны'], { defval: '' });
+    const zkey = z => z.name + '|' + z.points.map(q => q.lat.toFixed(6) + ',' + q.lon.toFixed(6)).join(';');
+    const zhave = new Set(zones.map(zkey));
+    zrows.forEach(r => {
+      const pts = String(r['Граница'] || '').split(';').map(parseNumPair).filter(Boolean).map(a => ({ lat: a[0], lon: a[1] }));
+      if (pts.length < 3) { res.bad++; return; }
+      const z = { id: 0, name: String(r['Название'] || '').trim() || ('Зона ' + (zones.length + 1)), points: pts };
+      if (zhave.has(zkey(z))) { res.dup++; return; }
+      zhave.add(zkey(z)); z.id = newId(); zones.push(z); res.zones++;
+    });
+  }
+  if (res.added || res.zones) {
+    saveData(); renderMapMarkers(); renderZonesOnMap(); refreshSpeciesSelect(); updateSpeciesFilter(); renderList();
+  }
+  return res;
+}
+
+function importExcel() {
+  if (typeof XLSX === 'undefined') { toast('⚠️ Библиотека Excel не загрузилась (нужен интернет)'); return; }
+  const input = document.createElement('input'); input.type = 'file'; input.accept = '.xlsx,.xls';
   input.onchange = e => {
     const file = e.target.files[0]; if (!file) return;
     const fr = new FileReader();
     fr.onload = ev => {
       try {
-        const d = JSON.parse(ev.target.result);
-        const pts = Array.isArray(d) ? d : (d.points || []);
-        const zns = d.zones || [];
-        const existP = new Set(points.map(p=>p.id)), existZ = new Set(zones.map(z=>z.id));
-        let ap = 0, az = 0;
-        pts.forEach(p => { if (!existP.has(p.id)) { points.push(p); ap++; } });
-        zns.forEach(z => { if (!existZ.has(z.id)) { zones.push(z); az++; } });
-        saveData(); renderMapMarkers(); renderZonesOnMap(); renderList();
-        toast('✅ Импорт: ' + ap + ' точек, ' + az + ' зон');
-      } catch(e) { toast('⚠️ Ошибка файла'); }
+        const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array', cellDates: true });
+        const r = importFromWorkbook(wb);
+        toast('✅ Импорт: точек ' + r.added + (r.zones ? ', зон ' + r.zones : '') +
+          (r.dup ? ' · уже были: ' + r.dup : '') + (r.bad ? ' · без координат: ' + r.bad : ''), 6000);
+      } catch (err) { toast('⚠️ Не удалось прочитать файл Excel'); }
     };
-    fr.readAsText(file);
+    fr.readAsArrayBuffer(file);
   };
   input.click();
 }
@@ -998,7 +1062,7 @@ function importJSON() {
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function fmtDate(iso) { try { return new Date(iso).toLocaleDateString('ru', {day:'2-digit',month:'2-digit',year:'numeric'}); } catch(e) { return iso.slice(0,10); } }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function toast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2800); }
+function toast(msg, ms) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),ms||2800); }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => { initMap(); renderList(); });
