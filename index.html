@@ -44,6 +44,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 .map-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 500; background: rgba(255,255,255,0.92); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--text2); pointer-events: none; white-space: nowrap; }
 .fab { position: absolute; z-index: 500; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(0,0,0,0.25); }
 .fab:active { transform: scale(0.93); }
+#fab-desc { bottom: 202px; right: 16px; width: 44px; height: 44px; background: var(--teal); color: #fff; font-size: 20px; }
 #fab-ruler { bottom: 146px; right: 16px; width: 44px; height: 44px; background: var(--amber); color: #fff; font-size: 20px; }
 .fab.on { outline: 3px solid #fff; box-shadow: 0 0 0 3px var(--amber), 0 3px 10px rgba(0,0,0,0.35); }
 #ruler-bar { position: absolute; top: 10px; left: 56px; right: 10px; z-index: 1100; display: flex; align-items: center; gap: 8px; background: var(--bg); color: var(--text); border: 2px solid var(--amber); border-radius: 12px; padding: 8px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
@@ -143,7 +144,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 <body>
 <div id="app">
   <header>
-    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.8</span></div>
+    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.9</span></div>
     <div class="hbtns">
       <button class="hbtn" onclick="exportExcel()">📊 В Excel</button>
       <button class="hbtn" onclick="importExcel()">📥 Из Excel</button>
@@ -165,6 +166,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
     <button class="fab" id="fab-add" onclick="goTab('add'); getGPS()">+</button>
     <button class="fab" id="fab-loc" onclick="centerOnMe()">📍</button>
     <button class="fab" id="fab-ruler" onclick="toggleRuler()" title="Линейка: расстояние между точками">📏</button>
+    <button class="fab on" id="fab-desc" onclick="toggleDesc()" title="Описания на карте">🏷️</button>
     <div id="ruler-bar" class="hidden">
       <div id="ruler-info"><div id="ruler-name">📏 Линейка · по прямой</div><div id="ruler-txt">Тапните первую точку</div></div>
       <button onclick="rulerReset()">↺ Заново</button>
@@ -310,6 +312,8 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 // ── DATA ──────────────────────────────────────────────────────────────────────
 let points = [], zones = [];
 let selectedRoute = new Set();
+let showDesc = true;
+try { showDesc = localStorage.getItem('gr_showdesc') !== '0'; } catch(e) {}
 let currentType = 'mushroom';
 let map, markers = [], zonePolygons = [];
 let myMarker = null, myCircle = null, firstLocate = true, gpsReady = false;
@@ -373,6 +377,7 @@ function initMap() {
     toast('📍 Координаты установлены');
   });
 
+  document.getElementById('fab-desc').classList.toggle('on', showDesc);
   renderMapMarkers();
   renderZonesOnMap();
   startTracking();
@@ -477,8 +482,18 @@ function getMarkerIcon(p) {
   const label = p.type === 'fish'
     ? (p.name || p.species || '')
     : (unknownSpecies.includes(p.species) ? (p.name || p.species) : (p.species || p.name || ''));
+  // Подпись: вид + описание (если включено кнопкой 🏷️ и описание отличается от вида)
+  const desc = (p.name && p.name !== p.species) ? p.name : '';
+  const box = 'background:rgba(255,255,255,0.92);color:#333;font-size:10px;padding:1px 5px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.2)';
+  let labelHtml;
+  if (showDesc && desc) {
+    const l1 = (p.species && p.species !== 'Другой вид') ? `<div style="font-weight:700">${esc(p.species)}</div>` : '';
+    labelHtml = `<div style="${box};max-width:130px;text-align:center;line-height:1.25">${l1}<div style="font-weight:500;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word">${esc(desc)}</div></div>`;
+  } else {
+    labelHtml = `<div style="${box};font-weight:600;white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis">${esc(label)}</div>`;
+  }
   return L.divIcon({
-    html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">${inner}<div style="background:rgba(255,255,255,0.92);color:#333;font-size:10px;font-weight:600;padding:1px 5px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.2);max-width:90px;overflow:hidden;text-overflow:ellipsis">${label}</div></div>`,
+    html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">${inner}${labelHtml}</div>`,
     className: '', iconSize: [34, 54], iconAnchor: [17, 17]
   });
 }
@@ -489,6 +504,7 @@ function renderMapMarkers() {
     const icon = getMarkerIcon(p);
     const m = L.marker([p.lat, p.lon], {icon}).addTo(map)
       .bindPopup(`<b>${p.name}</b><br>${p.species || ''}${p.area ? '<br>'+p.area : ''}<br><small>${fmtDate(p.date)}</small>`);
+    m._p = p;
     m.on('click', () => { if (rulerOn) rulerTap(p.lat, p.lon); else openModal(p.id); });
     markers.push(m);
   });
@@ -818,6 +834,15 @@ function navTo(id, kind) {
   } else {
     window.open(`https://maps.google.com/maps?daddr=${p.lat},${p.lon}`, '_blank');
   }
+}
+
+// Показать / скрыть описания точек на карте (вид карты при этом не меняется)
+function toggleDesc() {
+  showDesc = !showDesc;
+  try { localStorage.setItem('gr_showdesc', showDesc ? '1' : '0'); } catch(e) {}
+  document.getElementById('fab-desc').classList.toggle('on', showDesc);
+  markers.forEach(m => { if (m._p) m.setIcon(getMarkerIcon(m._p)); });
+  toast(showDesc ? '🏷️ Описания на карте: вкл' : '🏷️ Описания на карте: выкл');
 }
 
 // ── ЛИНЕЙКА: расстояние между точками на карте ───────────────────────────────
