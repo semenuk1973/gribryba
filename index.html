@@ -144,7 +144,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 <body>
 <div id="app">
   <header>
-    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.9</span></div>
+    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v2.0</span></div>
     <div class="hbtns">
       <button class="hbtn" onclick="exportExcel()">📊 В Excel</button>
       <button class="hbtn" onclick="importExcel()">📥 Из Excel</button>
@@ -331,12 +331,16 @@ function saveData() {
 loadData();
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
+let mapView = null; // положение карты (центр и масштаб) в момент ухода с вкладки «Карта»
 function goTab(t) {
+  if (map && t !== 'map' && document.getElementById('screen-map').classList.contains('active')) {
+    mapView = { c: map.getCenter(), z: map.getZoom() };
+  }
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.ntab').forEach(b => b.classList.remove('active'));
   document.getElementById('screen-' + t).classList.add('active');
   document.getElementById('tab-' + t).classList.add('active');
-  if (t === 'map')   { setTimeout(() => map && map.invalidateSize(), 150); }
+  if (t === 'map')   { setTimeout(() => { if (!map) return; map.invalidateSize(); if (mapView) map.setView(mapView.c, mapView.z, { animate: false }); }, 150); }
   if (t === 'list')  { updateSpeciesFilter(); renderList(); }
   if (t === 'route') { renderRoute(); }
   if (t === 'zones') { renderZonesList(); }
@@ -378,7 +382,7 @@ function initMap() {
   });
 
   document.getElementById('fab-desc').classList.toggle('on', showDesc);
-  renderMapMarkers();
+  renderMapMarkers(true);
   renderZonesOnMap();
   startTracking();
 }
@@ -497,7 +501,7 @@ function getMarkerIcon(p) {
     className: '', iconSize: [34, 54], iconAnchor: [17, 17]
   });
 }
-function renderMapMarkers() {
+function renderMapMarkers(fit) {
   markers.forEach(m => map.removeLayer(m));
   markers = [];
   points.forEach(p => {
@@ -508,7 +512,7 @@ function renderMapMarkers() {
     m.on('click', () => { if (rulerOn) rulerTap(p.lat, p.lon); else openModal(p.id); });
     markers.push(m);
   });
-  if (markers.length) {
+  if (fit && markers.length) {
     try { map.fitBounds(L.featureGroup(markers).getBounds().pad(0.15), {maxZoom: 14}); } catch(e) {}
   }
 }
@@ -1126,7 +1130,7 @@ function importFromWorkbook(wb) {
     });
   }
   if (res.added || res.zones) {
-    saveData(); renderMapMarkers(); renderZonesOnMap(); refreshSpeciesSelect(); updateSpeciesFilter(); renderList();
+    saveData(); renderMapMarkers(res.added > 0); renderZonesOnMap(); refreshSpeciesSelect(); updateSpeciesFilter(); renderList();
   }
   return res;
 }
