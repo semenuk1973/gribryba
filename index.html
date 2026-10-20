@@ -44,6 +44,12 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 .map-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 500; background: rgba(255,255,255,0.92); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--text2); pointer-events: none; white-space: nowrap; }
 .fab { position: absolute; z-index: 500; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(0,0,0,0.25); }
 .fab:active { transform: scale(0.93); }
+#direct-bar { position: absolute; top: 10px; left: 56px; right: 10px; z-index: 1100; display: flex; align-items: center; gap: 10px; background: var(--bg); color: var(--text); border: 2px solid var(--amber); border-radius: 12px; padding: 8px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+#direct-arrow { font-size: 26px; line-height: 1; width: 30px; text-align: center; flex-shrink: 0; transition: transform 0.3s; }
+#direct-info { flex: 1; min-width: 0; }
+#direct-name { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#direct-txt { font-size: 16px; font-weight: 600; }
+#direct-bar button { border: 1px solid var(--border2); background: var(--bg2); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: 14px; cursor: pointer; flex-shrink: 0; }
 #fab-add { bottom: 82px; right: 16px; width: 52px; height: 52px; background: var(--teal); color: #fff; font-size: 28px; }
 #fab-loc { bottom: 18px; right: 16px; width: 44px; height: 44px; background: var(--blue-d); color: #fff; font-size: 20px; }
 
@@ -126,7 +132,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 <body>
 <div id="app">
   <header>
-    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.3</span></div>
+    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v1.4</span></div>
     <div class="hbtns">
       <button class="hbtn" onclick="exportExcel()">📊 Excel</button>
       <button class="hbtn" onclick="exportJSON()">💾 Бэкап</button>
@@ -148,6 +154,11 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
     <div id="map"></div>
     <button class="fab" id="fab-add" onclick="goTab('add'); getGPS()">+</button>
     <button class="fab" id="fab-loc" onclick="centerOnMe()">📍</button>
+    <div id="direct-bar" class="hidden">
+      <div id="direct-arrow" class="hidden">⬆️</div>
+      <div id="direct-info"><div id="direct-name"></div><div id="direct-txt">Ожидаем GPS…</div></div>
+      <button onclick="stopDirect()">✖ Стоп</button>
+    </div>
   </div>
 
   <!-- LIST -->
@@ -466,7 +477,7 @@ function renderMapMarkers() {
 function startTracking() {
   if (!navigator.geolocation) return;
   navigator.geolocation.watchPosition(pos => {
-    const {latitude: lat, longitude: lon, accuracy: acc} = pos.coords;
+    const {latitude: lat, longitude: lon, accuracy: acc, heading} = pos.coords;
     if (myMarker) {
       myMarker.setLatLng([lat, lon]);
       myCircle.setLatLng([lat, lon]).setRadius(acc);
@@ -480,6 +491,7 @@ function startTracking() {
     if (firstLocate) { map.setView([lat, lon], 14); firstLocate = false; gpsReady = true; }
     checkProximity(lat, lon);
     checkZones(lat, lon);
+    updateDirect(lat, lon, heading);
   }, () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
 }
 
@@ -744,9 +756,9 @@ function openModal(id) {
     ${p.comment?`<div class="mrow"><span class="mlabel">Комментарий</span><span class="mvalue">${esc(p.comment)}</span></div>`:''}`;
   document.getElementById('m-btns').innerHTML = `
     <button class="btn-del" onclick="delPoint(${id})">🗑️ Удалить</button>
-    <button class="btn-nav" onclick="navTo(${p.lat},${p.lon})">🧭 Навигация</button>
+    <button class="btn-nav" onclick="navChoose(${id})">🧭 Навигация</button>
     <button class="btn-amber" onclick="addToRoute(${id})">➕ Маршрут</button>
-    ${p.type==='mushroom'?`<button class="btn-teal" onclick="editPoint(${id})">✏️ Изменить</button>`:''}`;
+    <button class="btn-teal" onclick="editPoint(${id})">✏️ Изменить</button>`;
   document.getElementById('overlay').classList.remove('hidden');
 }
 
@@ -758,7 +770,88 @@ function delPoint(id) {
   renderMapMarkers(); renderList(); closeModal(); toast('Точка удалена');
 }
 
-function navTo(lat, lon) { closeModal(); window.open(`https://maps.google.com/maps?daddr=${lat},${lon}`, '_blank'); }
+// Выбор способа навигации к точке
+function navChoose(id) {
+  const p = points.find(x => x.id === id); if (!p) return;
+  document.getElementById('m-title').textContent = '🧭 Как идти к точке?';
+  document.getElementById('m-body').innerHTML = `<div style="font-size:14px;color:var(--text2);padding:4px 0 2px">${esc(p.name || p.species || '')}</div>
+    <div style="font-size:12px;color:var(--text3);padding-bottom:4px">«Напрямую» — линия на карте по прямой, расстояние и направление (без дорог и троп).</div>`;
+  document.getElementById('m-btns').innerHTML = `
+    <button class="btn-nav" style="flex-basis:100%" onclick="navTo(${id},'google')">🗺️ Google Карты</button>
+    <button class="btn-amber" style="flex-basis:100%" onclick="navTo(${id},'yandex')">🗺️ Яндекс Карты</button>
+    <button class="btn-teal" style="flex-basis:100%" onclick="navDirect(${id})">➡️ Напрямую (по прямой)</button>
+    <button style="flex-basis:100%;background:var(--bg2);color:var(--text2);border-color:var(--border2)" onclick="openModal(${id})">← Назад</button>`;
+}
+
+function navTo(id, kind) {
+  const p = points.find(x => x.id === id); if (!p) return;
+  closeModal();
+  if (kind === 'yandex') {
+    const from = myMarker ? myMarker.getLatLng().lat + ',' + myMarker.getLatLng().lng : '';
+    window.open(`https://maps.yandex.ru/?rtext=${from}~${p.lat},${p.lon}&rtt=auto`, '_blank');
+  } else {
+    window.open(`https://maps.google.com/maps?daddr=${p.lat},${p.lon}`, '_blank');
+  }
+}
+
+// ── НАВИГАЦИЯ НАПРЯМУЮ ────────────────────────────────────────────────────────
+let directTarget = null, directLine = null;
+
+function bearing(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180, dl = (lon2 - lon1) * r;
+  const y = Math.sin(dl) * Math.cos(lat2 * r);
+  const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos(dl);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function compassName(b) { return ['С','СВ','В','ЮВ','Ю','ЮЗ','З','СЗ'][Math.round(b / 45) % 8]; }
+function fmtDist(d) { return d < 1000 ? Math.round(d) + ' м' : (d / 1000).toFixed(2) + ' км'; }
+
+function navDirect(id) {
+  const p = points.find(x => x.id === id); if (!p) return;
+  closeModal();
+  directTarget = p;
+  goTab('map');
+  if (!directLine) directLine = L.polyline([], { color: '#E8890C', weight: 4, dashArray: '8 8', opacity: 0.95 }).addTo(map);
+  document.getElementById('direct-bar').classList.remove('hidden');
+  document.getElementById('direct-name').textContent = (p.type === 'mushroom' ? '🍄 ' : '🐟 ') + (p.name || p.species || '');
+  document.getElementById('direct-txt').textContent = 'Ожидаем GPS…';
+  document.getElementById('direct-arrow').classList.add('hidden');
+  directLine.setLatLngs([]);
+  setTimeout(() => {
+    map.invalidateSize();
+    if (myMarker) {
+      const me = myMarker.getLatLng();
+      updateDirect(me.lat, me.lng, null);
+      map.fitBounds(L.latLngBounds([me, [p.lat, p.lon]]).pad(0.3), { maxZoom: 18 });
+    } else {
+      map.setView([p.lat, p.lon], 16);
+    }
+  }, 200);
+}
+
+function updateDirect(lat, lon, heading) {
+  if (!directTarget || !directLine) return;
+  const p = directTarget;
+  const d = dist(lat, lon, p.lat, p.lon), b = bearing(lat, lon, p.lat, p.lon);
+  directLine.setLatLngs([[lat, lon], [p.lat, p.lon]]);
+  const arrow = document.getElementById('direct-arrow');
+  if (typeof heading === 'number' && !isNaN(heading)) {
+    // стрелка относительно направления движения: вверх = идти прямо
+    arrow.style.transform = `rotate(${b - heading}deg)`;
+    arrow.classList.remove('hidden');
+  } else {
+    arrow.classList.add('hidden');
+  }
+  document.getElementById('direct-txt').textContent = d < 10
+    ? '🎯 Вы на месте!'
+    : `${fmtDist(d)} · ${compassName(b)} ${Math.round(b)}°`;
+}
+
+function stopDirect() {
+  directTarget = null;
+  if (directLine) directLine.setLatLngs([]);
+  document.getElementById('direct-bar').classList.add('hidden');
+}
 
 function addToRoute(id) { selectedRoute.add(id); closeModal(); toast('✅ Добавлено в маршрут'); goTab('route'); }
 
@@ -769,13 +862,21 @@ function editPoint(id) {
   const isKnown = speciesList.includes(p.species);
   const selVal = isKnown ? p.species : 'Другой вид';
   const customVal = isKnown ? '' : (p.species || '');
+  const descVal = (p.name && p.name !== p.species) ? p.name : '';
+  const descHtml = `<div class="fg" style="margin-bottom:12px">
+      <div class="fl">Описание</div>
+      <input class="fi" id="edit-desc" type="text" maxlength="100" autocomplete="off" placeholder="Например: у ручья за поворотом" value="${esc(descVal)}">
+    </div>`;
   document.getElementById('m-title').textContent = '✏️ Изменить данные';
-  document.getElementById('m-body').innerHTML = `
+  if (p.type !== 'mushroom') {
+    document.getElementById('m-body').innerHTML = descHtml;
+  } else document.getElementById('m-body').innerHTML = `
     <div class="fg" style="margin-bottom:12px">
       <div class="fl">Вид гриба</div>
       <select class="fi" id="edit-sp" onchange="onEditSpeciesChange()">${speciesList.map(s=>`<option${s===selVal?' selected':''}>${esc(s)}</option>`).join('')}</select>
       <input class="fi${selVal==='Другой вид'?'':' hidden'}" id="edit-sp-custom" type="text" maxlength="40" autocomplete="off" placeholder="Впишите название гриба" value="${esc(customVal)}" style="margin-top:8px">
     </div>
+    ${descHtml}
     <div class="fg">
       <div class="fl">Район</div>
       <select class="fi" id="edit-ar"><option value="">—</option>${AREAS.map(a=>`<option${a===p.area?' selected':''}>${a}</option>`).join('')}</select>
@@ -794,14 +895,16 @@ function onEditSpeciesChange() {
 
 function saveEdit(id) {
   const p = points.find(x => x.id === id); if (!p) return;
-  const oldSpecies = p.species;
-  const v = document.getElementById('edit-sp').value;
-  p.species = v === 'Другой вид'
-    ? (normSpecies(document.getElementById('edit-sp-custom').value) || 'Другой вид')
-    : v;
-  // Если название точки было просто видом гриба (без описания) — обновляем и его
-  if (p.name === oldSpecies) p.name = p.species;
-  p.area = document.getElementById('edit-ar').value;
+  if (p.type === 'mushroom') {
+    const v = document.getElementById('edit-sp').value;
+    p.species = v === 'Другой вид'
+      ? (normSpecies(document.getElementById('edit-sp-custom').value) || 'Другой вид')
+      : v;
+    p.area = document.getElementById('edit-ar').value;
+  }
+  // Описание: если очистить — название точки снова станет видом
+  const desc = document.getElementById('edit-desc').value.trim().replace(/\s+/g, ' ');
+  p.name = desc || p.species || p.name;
   saveData(); renderMapMarkers(); renderList(); closeModal(); toast('✅ Обновлено');
 }
 
