@@ -44,6 +44,11 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 .map-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 500; background: rgba(255,255,255,0.92); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--text2); pointer-events: none; white-space: nowrap; }
 .fab { position: absolute; z-index: 500; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(0,0,0,0.25); }
 .fab:active { transform: scale(0.93); }
+#fab-tracks { bottom: 258px; right: 16px; width: 44px; height: 44px; background: #2563EB; color: #fff; font-size: 20px; }
+#fab-tracks.on { background: #DC2626; }
+#rec-pill { position: absolute; left: 12px; bottom: 58px; z-index: 900; background: #DC2626; color: #fff; border-radius: 16px; padding: 6px 12px; font-size: 13px; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.3); cursor: pointer; }
+#rec-pill .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #fff; margin-right: 6px; animation: recblink 1.2s infinite; }
+@keyframes recblink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 #fab-desc { bottom: 202px; right: 16px; width: 44px; height: 44px; background: var(--teal); color: #fff; font-size: 20px; }
 #fab-ruler { bottom: 146px; right: 16px; width: 44px; height: 44px; background: var(--amber); color: #fff; font-size: 20px; }
 .fab.on { outline: 3px solid #fff; box-shadow: 0 0 0 3px var(--amber), 0 3px 10px rgba(0,0,0,0.35); }
@@ -144,7 +149,7 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
 <body>
 <div id="app">
   <header>
-    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v2.0</span></div>
+    <div class="htitle">🗺️ ГрибРыба <span style="font-size:11px;opacity:0.75;font-weight:400">v2.1</span></div>
     <div class="hbtns">
       <button class="hbtn" onclick="exportExcel()">📊 В Excel</button>
       <button class="hbtn" onclick="importExcel()">📥 Из Excel</button>
@@ -167,6 +172,8 @@ nav { background: var(--bg); border-bottom: 1px solid var(--border); display: fl
     <button class="fab" id="fab-loc" onclick="centerOnMe()">📍</button>
     <button class="fab" id="fab-ruler" onclick="toggleRuler()" title="Линейка: расстояние между точками">📏</button>
     <button class="fab on" id="fab-desc" onclick="toggleDesc()" title="Описания на карте">🏷️</button>
+    <button class="fab" id="fab-tracks" onclick="openTracks()" title="Мои пути">🥾</button>
+    <div id="rec-pill" class="hidden" onclick="openTracks()"><span class="dot"></span><span id="rec-txt"></span></div>
     <div id="ruler-bar" class="hidden">
       <div id="ruler-info"><div id="ruler-name">📏 Линейка · по прямой</div><div id="ruler-txt">Тапните первую точку</div></div>
       <button onclick="rulerReset()">↺ Заново</button>
@@ -384,6 +391,7 @@ function initMap() {
   document.getElementById('fab-desc').classList.toggle('on', showDesc);
   renderMapMarkers(true);
   renderZonesOnMap();
+  initTracks();
   startTracking();
 }
 
@@ -537,6 +545,7 @@ function startTracking() {
     checkProximity(lat, lon);
     checkZones(lat, lon);
     updateDirect(lat, lon, heading);
+    recordPoint(lat, lon, acc);
   }, () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
 }
 
@@ -838,6 +847,162 @@ function navTo(id, kind) {
   } else {
     window.open(`https://maps.google.com/maps?daddr=${p.lat},${p.lon}`, '_blank');
   }
+}
+
+// ── ЗАПИСЬ ПУТЕЙ (треки): хранятся 3 дня, показываются по выбору ─────────────
+const TRACK_TTL = 3 * 24 * 3600 * 1000;
+const TRACK_COLORS = ['#2563EB', '#9333EA', '#DB2777', '#0891B2', '#65A30D'];
+let tracks = [], recTrack = null, trackGroup = null, trackLines = {}, wakeLock = null, lastTrackSave = 0, recTimer = null;
+
+function saveTracks(force) {
+  const now = Date.now();
+  if (!force && now - lastTrackSave < 10000) return;
+  lastTrackSave = now;
+  try { localStorage.setItem('gr_tracks', JSON.stringify(tracks)); }
+  catch (e) { toast('⚠️ Не удалось сохранить пути (нет места)'); }
+}
+
+// Удалить пути старше 3 дней (отсчёт от конца записи)
+function purgeOldTracks() {
+  const now = Date.now(), n = tracks.length;
+  tracks = tracks.filter(t => t.active || now - new Date(t.end).getTime() < TRACK_TTL);
+  if (tracks.length !== n) { saveTracks(true); return true; }
+  return false;
+}
+
+function initTracks() {
+  try { tracks = JSON.parse(localStorage.getItem('gr_tracks') || '[]'); } catch (e) { tracks = []; }
+  if (!Array.isArray(tracks)) tracks = [];
+  const now = Date.now();
+  tracks.forEach(t => {
+    if (!t.active) return;
+    // запись была прервана (страницу закрыли/перезагрузили): свежую — продолжаем, старую — закрываем
+    if (!recTrack && now - new Date(t.end).getTime() < 30 * 60 * 1000) recTrack = t; else t.active = false;
+  });
+  tracks = tracks.filter(t => t.active || (t.pts && t.pts.length >= 2));
+  purgeOldTracks();
+  saveTracks(true);
+  drawTracks();
+  if (recTrack) { lockScreen(); startRecUi(); toast('⏺ Запись пути продолжается'); }
+  setInterval(() => { if (purgeOldTracks()) drawTracks(); }, 3600000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveTracks(true);
+    else if (recTrack) lockScreen();
+  });
+  window.addEventListener('pagehide', () => saveTracks(true));
+}
+
+// Линии отмеченных путей на карте (под метками, тап по ним проходит на карту)
+function drawTracks() {
+  if (!map) return;
+  if (!trackGroup) trackGroup = L.layerGroup().addTo(map);
+  trackGroup.clearLayers();
+  trackLines = {};
+  tracks.forEach(t => {
+    if (!t.show || !t.pts || t.pts.length < 2) return;
+    trackLines[t.id] = L.polyline(t.pts, { color: t.active ? '#DC2626' : TRACK_COLORS[t.id % TRACK_COLORS.length], weight: 4, opacity: 0.85, interactive: false }).addTo(trackGroup);
+  });
+}
+
+async function lockScreen() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+function unlockScreen() {
+  try { if (wakeLock) wakeLock.release(); } catch (e) {}
+  wakeLock = null;
+}
+
+function fmtDur(ms) {
+  const m = Math.max(0, Math.round(ms / 60000));
+  return m < 60 ? m + ' мин' : Math.floor(m / 60) + ' ч ' + (m % 60) + ' мин';
+}
+function fmtLeft(t) {
+  const h = Math.max(0, Math.floor((new Date(t.end).getTime() + TRACK_TTL - Date.now()) / 3600000));
+  return h < 1 ? 'меньше часа' : h >= 24 ? Math.floor(h / 24) + ' д ' + (h % 24) + ' ч' : h + ' ч';
+}
+
+function updateRecPill() {
+  if (!recTrack) return;
+  document.getElementById('rec-txt').textContent = fmtDist(recTrack.dist || 0) + ' · ' + fmtDur(Date.now() - new Date(recTrack.start).getTime());
+}
+function startRecUi() {
+  document.getElementById('rec-pill').classList.remove('hidden');
+  document.getElementById('fab-tracks').classList.add('on');
+  updateRecPill(); clearInterval(recTimer); recTimer = setInterval(updateRecPill, 15000);
+}
+function stopRecUi() {
+  document.getElementById('rec-pill').classList.add('hidden');
+  document.getElementById('fab-tracks').classList.remove('on');
+  clearInterval(recTimer);
+}
+
+function startRec() {
+  if (recTrack) return;
+  const nowIso = new Date().toISOString();
+  const t = { id: Date.now(), start: nowIso, end: nowIso, pts: [], dist: 0, show: true, active: true };
+  if (myMarker) { const ll = myMarker.getLatLng(); t.pts.push([+ll.lat.toFixed(6), +ll.lng.toFixed(6)]); }
+  tracks.unshift(t); recTrack = t;
+  saveTracks(true); drawTracks(); lockScreen(); startRecUi(); closeModal();
+  toast(myMarker ? '⏺ Запись пути началась' : '⏺ Запись началась — ждём GPS…');
+}
+
+function stopRec() {
+  if (!recTrack) return;
+  const t = recTrack; recTrack = null;
+  t.active = false; t.end = new Date().toISOString();
+  unlockScreen(); stopRecUi();
+  if (t.pts.length < 2) { tracks = tracks.filter(x => x !== t); toast('Путь слишком короткий — не сохранён'); }
+  else toast('⏹ Путь сохранён: ' + fmtDist(t.dist || 0));
+  saveTracks(true); drawTracks(); openTracks();
+}
+
+// Вызывается при каждом новом положении GPS
+function recordPoint(lat, lon, acc) {
+  if (!recTrack || acc > 40) return;
+  const t = recTrack, last = t.pts[t.pts.length - 1];
+  const d = last ? dist(last[0], last[1], lat, lon) : 0;
+  if (last && d < Math.max(8, acc * 0.5)) return;   // стоим на месте / дрожание GPS
+  t.pts.push([+lat.toFixed(6), +lon.toFixed(6)]);
+  t.dist = (t.dist || 0) + d;
+  t.end = new Date().toISOString();
+  if (trackLines[t.id]) trackLines[t.id].addLatLng([lat, lon]);
+  else if (t.show && t.pts.length >= 2) drawTracks();
+  updateRecPill(); saveTracks();
+}
+
+function toggleTrack(id) {
+  const t = tracks.find(x => x.id === id); if (!t) return;
+  t.show = !t.show; saveTracks(true); drawTracks();
+}
+function setAllTracks(v) { tracks.forEach(t => { t.show = v; }); saveTracks(true); drawTracks(); openTracks(); }
+function delTrack(id) {
+  if (recTrack && recTrack.id === id) { toast('Сначала закончите запись'); return; }
+  tracks = tracks.filter(x => x.id !== id); saveTracks(true); drawTracks(); openTracks();
+}
+
+function openTracks() {
+  if (purgeOldTracks()) drawTracks();
+  const fmtT = iso => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const rows = tracks.map(t => {
+    const col = t.active ? '#DC2626' : TRACK_COLORS[t.id % TRACK_COLORS.length];
+    const sub = t.active ? 'идёт запись · ' + fmtDist(t.dist || 0)
+      : fmtDist(t.dist || 0) + ' · ' + fmtDur(new Date(t.end) - new Date(t.start)) + ' · удалится через ' + fmtLeft(t);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <input type="checkbox" ${t.show ? 'checked' : ''} onchange="toggleTrack(${t.id})" style="width:22px;height:22px;flex-shrink:0">
+      <span style="width:12px;height:12px;border-radius:50%;background:${col};flex-shrink:0"></span>
+      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">${t.active ? '⏺ ' : ''}${fmtT(t.start)}</div><div style="font-size:12px;color:var(--text2)">${sub}</div></div>
+      <button onclick="delTrack(${t.id})" style="border:1px solid var(--border2);background:var(--bg2);border-radius:8px;padding:6px 9px;font-size:15px;cursor:pointer">🗑️</button></div>`;
+  }).join('') || '<div style="padding:14px 0;color:var(--text2);font-size:14px">Путей пока нет. Нажмите «Начать запись» и идите: путь рисуется по вашему GPS.</div>';
+  const allBtns = tracks.length > 1 ? `<div style="display:flex;gap:8px;padding:2px 0 6px">
+      <button onclick="setAllTracks(true)" style="flex:1;border:1px solid var(--border2);background:var(--bg2);color:var(--text);border-radius:8px;padding:7px;font-size:13px;cursor:pointer">Показать все</button>
+      <button onclick="setAllTracks(false)" style="flex:1;border:1px solid var(--border2);background:var(--bg2);color:var(--text);border-radius:8px;padding:7px;font-size:13px;cursor:pointer">Скрыть все</button></div>` : '';
+  document.getElementById('m-title').textContent = '🥾 Мои пути';
+  document.getElementById('m-body').innerHTML = `<div style="font-size:12px;color:var(--text3);padding:2px 0 8px">Отмеченные пути показываются на карте. Каждый путь удаляется сам через 3 дня после записи.</div>${allBtns}${rows}`;
+  document.getElementById('m-btns').innerHTML =
+    (recTrack ? `<button class="btn-del" style="flex-basis:100%" onclick="stopRec()">⏹ Закончить запись</button>`
+              : `<button class="btn-teal" style="flex-basis:100%" onclick="startRec()">⏺ Начать запись пути</button>`) +
+    `<button style="flex-basis:100%;background:var(--bg2);color:var(--text2);border-color:var(--border2)" onclick="closeModal()">Закрыть</button>`;
+  document.getElementById('overlay').classList.remove('hidden');
 }
 
 // Показать / скрыть описания точек на карте (вид карты при этом не меняется)
